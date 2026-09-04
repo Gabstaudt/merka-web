@@ -3,13 +3,68 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /*
+   * Sistema de design Merka — ver merka-web/CLAUDE.md. Cada tela
+   * operacional (Porteiro, Balança, Garçom, Caixa) é um objeto de papel,
+   * não um dashboard de cards: fundo --papel, estrutura por linha fina
+   * (--linha), um único acento (--ambar) usado com escassez. Telas
+   * administrativas (Gestor, Admin) usam --branco-marca, sutilmente
+   * distinto do papel.
+   */
+  --color-tinta: #2a2f3a;
+  --color-ambar: #d69b3f;
+  --color-papel: #faf9f7;
+  --color-branco-marca: #fafafa;
+  --color-linha: #eae8e5;
+  --color-texto-secundario: #8a8783;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  --color-tinta: var(--color-tinta);
+  --color-ambar: var(--color-ambar);
+  --color-papel: var(--color-papel);
+  --color-branco-marca: var(--color-branco-marca);
+  --color-linha: var(--color-linha);
+  --color-texto-secundario: var(--color-texto-secundario);
+
+  /*
+   * font-display (Fraunces): valores monetários e números grandes.
+   * font-sans (IBM Plex Sans): labels, ações, texto de interface.
+   * font-mono (IBM Plex Mono): códigos de comanda, horários, protocolos
+   * — autenticidade com o objeto físico (cupom/recibo), não decoração.
+   */
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+
+  /*
+   * Único momento de movimento da tela de Porteiro: o painel de
+   * resultado (sucesso/bloqueio) entra com um leve fade+subida depois de
+   * cada ação — não decoração espalhada, é o retorno do sistema pra uma
+   * ação do usuário (ver skill frontend-design).
+   */
+  --animate-feedback-in: feedback-in 180ms ease-out;
+}
+
+@keyframes feedback-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-feedback-in {
+    animation: none;
+  }
 }
 
 @media (prefers-color-scheme: dark) {

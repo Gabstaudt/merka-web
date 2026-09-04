@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 480 132" font-family="Space Grotesk, Helvetica, Arial, sans-serif">
+  <g transform="translate(8,16)">
+    <rect width="100" height="100" rx="22" fill="#FAFAFA"></rect>
+    <polyline points="26,72 26,32 50,56 74,32 74,72" fill="none" stroke="#2A2F3A" stroke-width="9" stroke-linecap="square"></polyline>
+    <rect x="26" y="78" width="48" height="6" rx="3" fill="#D69B3F"></rect>
+  </g>
+  <text x="132" y="80" font-size="72" font-weight="600" letter-spacing="-3.2" fill="#FAFAFA">Merka</text>
+</svg>

@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+
+import { LogoutButton } from "@/components/LogoutButton";
 
 type Comanda = {
   ID: string;
@@ -12,26 +14,52 @@ type Comanda = {
   FechadaEm: string | null;
 };
 
-// US-07: entregar comanda zerada ao cliente na entrada. Já conectado de
-// verdade em POST /api/comandas/:codigo/abrir → backend
-// POST /comandas/:codigo/abrir (ver merka-api CLAUDE.md).
-//
-// US-08 (receber comanda na saída) ainda não tem endpoint no backend —
-// fica como próximo passo, não implementado aqui ainda.
+type Acao = "entregar" | "receber";
+
+type Resultado =
+  | { tipo: "sucesso"; acao: Acao; comanda: Comanda; horario: string; chave: number }
+  | { tipo: "erro"; acao: Acao; codigo: string; mensagem: string; chave: number };
+
+// Traduz o erro cru do backend (já em português simples, ver
+// merka-api/internal/usecase/{abrir,liberar}_comanda.go) pro tom de voz
+// da interface: sempre "o que houve" + "o que fazer", nunca "ops" nem
+// pedido de desculpa — e sempre com o código da comanda na frase, porque
+// é a informação que o porteiro precisa repassar a quem está na fila.
+function mensagemDeErro(codigo: string, erroBackend: string): string {
+  if (erroBackend.includes("não encontrada")) {
+    return `Comanda ${codigo} não encontrada. Confira o código e tente de novo.`;
+  }
+  if (erroBackend.includes("saldo") || erroBackend.includes("ainda não foi paga")) {
+    return `Comanda ${codigo} ainda não foi paga. Direcione o cliente ao caixa.`;
+  }
+  if (erroBackend.includes("não está disponível")) {
+    return `Comanda ${codigo} já está em uso. Confira se ela já foi entregue.`;
+  }
+  return `Comanda ${codigo}: ${erroBackend}`;
+}
+
 export default function PorteiroPage() {
   const [codigo, setCodigo] = useState("");
-  const [resultado, setResultado] = useState<Comanda | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-  const [carregando, setCarregando] = useState(false);
+  const [resultado, setResultado] = useState<Resultado | null>(null);
+  const [carregando, setCarregando] = useState<Acao | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  async function abrirComanda(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setErro(null);
-    setResultado(null);
-    setCarregando(true);
+  // O leitor de código de barras simula digitação + Enter — depois de
+  // qualquer ação, o campo já volta limpo e em foco, pronto pro próximo
+  // cliente, sem o porteiro precisar tocar na tela.
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [resultado]);
+
+  async function executar(acao: Acao) {
+    const codigoAtual = codigo.trim();
+    if (codigoAtual === "" || carregando) return;
+
+    setCarregando(acao);
+    const rota = acao === "entregar" ? "abrir" : "liberar";
 
     try {
-      const res = await fetch(`/api/comandas/${encodeURIComponent(codigo)}/abrir`, {
+      const res = await fetch(`/api/comandas/${encodeURIComponent(codigoAtual)}/${rota}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -39,68 +67,120 @@ export default function PorteiroPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setErro(data.erro ?? "erro ao abrir a comanda");
-        return;
+        setResultado({
+          tipo: "erro",
+          acao,
+          codigo: codigoAtual,
+          mensagem: mensagemDeErro(codigoAtual, data.erro ?? "não foi possível concluir"),
+          chave: Date.now(),
+        });
+      } else {
+        setResultado({
+          tipo: "sucesso",
+          acao,
+          comanda: data as Comanda,
+          horario: new Date().toLocaleTimeString("pt-BR"),
+          chave: Date.now(),
+        });
       }
-
-      setResultado(data as Comanda);
-      setCodigo("");
     } catch {
-      setErro("erro de conexão com o servidor");
+      setResultado({
+        tipo: "erro",
+        acao,
+        codigo: codigoAtual,
+        mensagem: "Sem conexão com o servidor. Confira a rede e tente de novo.",
+        chave: Date.now(),
+      });
     } finally {
-      setCarregando(false);
+      setCodigo("");
+      setCarregando(null);
     }
   }
 
+  // Enter no campo (inclusive vindo do leitor de código de barras) aciona
+  // "Entregar" — é o fluxo mais frequente numa entrada (cliente chegando).
+  // "Receber" fica só no botão explícito, pra devolução na saída.
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    executar("entregar");
+  }
+
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-col gap-6">
-      <div>
-        <h2 className="text-lg font-semibold">Entregar comanda</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Escaneie ou digite o código físico da comanda para liberá-la ao cliente.
-        </p>
-      </div>
-
-      <form onSubmit={abrirComanda} className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700 dark:text-slate-300">Código da comanda</span>
-          <input
-            type="text"
-            value={codigo}
-            onChange={(e) => setCodigo(e.target.value)}
-            placeholder="ex: C001"
-            autoFocus
-            required
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
-
-        <button
-          type="submit"
-          disabled={carregando || codigo.trim() === ""}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-50 dark:text-slate-900 dark:hover:bg-slate-200"
-        >
-          {carregando ? "Abrindo…" : "Abrir comanda"}
-        </button>
-      </form>
-
-      {erro && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          {erro}
-        </p>
-      )}
-
-      {resultado && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-          <p className="font-medium">Comanda {resultado.CodigoFisico} liberada</p>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
-            <dt className="text-emerald-600 dark:text-emerald-400">status</dt>
-            <dd>{resultado.Status}</dd>
-            <dt className="text-emerald-600 dark:text-emerald-400">aberta em</dt>
-            <dd>{resultado.AbertaEm ? new Date(resultado.AbertaEm).toLocaleString("pt-BR") : "—"}</dd>
-          </dl>
+    <div className="flex min-h-dvh flex-col">
+      <header className="flex items-center justify-between border-b border-linha px-6 py-4">
+        <div className="flex items-baseline gap-2">
+          <span className="font-display text-lg text-tinta">Merka</span>
+          <span className="text-linha">/</span>
+          <span className="text-sm text-texto-secundario">Porteiro</span>
         </div>
-      )}
+        <LogoutButton />
+      </header>
+
+      <main className="flex flex-1 flex-col">
+        {resultado && (
+          <section
+            key={resultado.chave}
+            className="animate-feedback-in border-b border-linha px-6 py-10 sm:px-10 sm:py-14"
+          >
+            <div className="border-l-2 border-ambar pl-6">
+              {resultado.tipo === "sucesso" ? (
+                <>
+                  <p className="text-sm font-medium text-ambar">
+                    {resultado.acao === "entregar" ? "Liberada ao cliente" : "Recebida, pronta pro próximo cliente"}
+                  </p>
+                  <p className="mt-2 font-display text-6xl text-tinta sm:text-7xl">
+                    {resultado.comanda.CodigoFisico}
+                  </p>
+                  <p className="mt-3 font-mono text-sm text-texto-secundario">{resultado.horario}</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-ambar">Não foi possível concluir</p>
+                  <p className="mt-2 max-w-xl text-2xl leading-snug text-tinta sm:text-3xl">
+                    {resultado.mensagem}
+                  </p>
+                </>
+              )}
+            </div>
+          </section>
+        )}
+
+        <div className="flex flex-1 flex-col justify-center px-6 py-10 sm:px-10">
+          <form onSubmit={handleSubmit} className="mx-auto flex w-full max-w-xl flex-col gap-8">
+            <label className="flex flex-col gap-3">
+              <span className="text-sm text-texto-secundario">Código da comanda</span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={codigo}
+                onChange={(e) => setCodigo(e.target.value)}
+                placeholder="—"
+                autoFocus
+                autoComplete="off"
+                className="border-b-2 border-tinta bg-transparent pb-2 font-mono text-5xl text-tinta outline-none placeholder:text-texto-secundario/50 focus:border-ambar sm:text-6xl"
+              />
+            </label>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="submit"
+                disabled={codigo.trim() === "" || carregando !== null}
+                className="flex-1 bg-tinta px-6 py-4 text-base font-medium text-papel transition-opacity disabled:opacity-40"
+              >
+                {carregando === "entregar" ? "Entregando…" : "Entregar comanda"}
+              </button>
+              <button
+                type="button"
+                onClick={() => executar("receber")}
+                disabled={codigo.trim() === "" || carregando !== null}
+                className="flex-1 border border-tinta px-6 py-4 text-base font-medium text-tinta transition-opacity disabled:opacity-40"
+              >
+                {carregando === "receber" ? "Recebendo…" : "Receber comanda"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </main>
     </div>
   );
 }
