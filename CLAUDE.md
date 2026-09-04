@@ -201,10 +201,47 @@ raramente olha só uma tela por vez.
   sem suporte, ou se a conexão falhar, aparece direto a instrução pra
   digitar manualmente, sem erro alarmante.
 
-- **Garçom, Caixa** — placeholders navegáveis
-  (`components/PlaceholderCard.tsx`), UI genérica slate/Tailwind default,
-  **ainda não migradas** pro sistema de design nem conectadas ao backend
-  de verdade (os endpoints já existem em merka-api).
+- **Garçom** (`app/(garcom)/garcom/page.tsx`) — **implementada de
+  verdade**, terceira aplicação do sistema de design. Mobile-first (celular
+  andando pelo salão), single-column, duas telas dentro do mesmo
+  componente: lista de mesas em atendimento (com busca direta por código,
+  mesmo padrão dos outros perfis) e a comanda aberta (itens lançados +
+  total parcial + adicionar item + remover + transferir mesa). Itens de
+  peso e unitário aparecem juntos na mesma lista, distinguidos por um
+  rótulo `· peso` / `· unidade` em `font-mono` ao lado do nome do produto
+  — nenhuma seção separada, já que ao garçom interessa o lançamento
+  completo da comanda, não a origem do lançamento. Remoção (US-12) só
+  aparece em itens unitários ativos (itens de peso só se estornam pela
+  Balança, rota/permissão diferente). Total parcial usa `text-ambar` +
+  `font-display` — é literalmente "valor total", o uso canônico do
+  acento âmbar. Conflito de sincronização usa a mesma mensagem específica
+  da Balança.
+
+  **Tempo real** (`lib/useMerkaSocket.ts`): hook que abre WebSocket com o
+  backend e re-busca os itens da comanda aberta quando chega um evento
+  `comanda_atualizada` — por isso a tela reflete sozinha um peso que a
+  Balança acabou de lançar na mesma comanda, sem refresh manual. Único
+  ponto do frontend que expõe o JWT ao JS do cliente: o WebSocket nativo
+  do navegador não aceita headers customizados no handshake (mesma razão
+  que já levou o próprio backend a autenticar o `/ws` via querystring —
+  ver `merka-api/internal/handler/ws_handler.go`), então
+  `app/api/ws-token/route.ts` lê o cookie httpOnly no servidor e entrega
+  um token efêmero só pra abrir a conexão. Documentado aqui pra próxima
+  sessão não reintroduzir isso por engano em outro lugar.
+
+  **Endpoints novos no backend, adicionados durante esta tela** (não
+  existiam antes — a tela precisava deles pra "conectar de verdade", sem
+  dado mockado): `GET /mesas` (lista mesas + comanda em_uso associada,
+  `internal/handler/table_handler.go`) e `GET /comandas/:id/itens`
+  (lista todos os order_items de uma comanda, `ComandaHandler.ListarItens`
+  em `comanda_handler.go`) — ambos sem `RequerPermissao` (leitura, qualquer
+  perfil autenticado). Duas mesas extras de teste (`Mesa 2`, `Mesa 3`) em
+  `migrations/0021_seed_mesas_extra.sql`.
+
+- **Caixa** — placeholder navegável (`components/PlaceholderCard.tsx`),
+  UI genérica slate/Tailwind default, **ainda não migrada** pro sistema
+  de design nem conectada ao backend de verdade (os endpoints já existem
+  em merka-api).
 - **Gestor** (auditoria, relatórios) — idem, placeholder.
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo
