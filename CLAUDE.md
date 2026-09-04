@@ -280,9 +280,50 @@ raramente olha só uma tela por vez.
   /pagamentos` não espera a SEFAZ, então a tela não afirma "nota emitida",
   só avisa que a emissão está a caminho quando aplicável.
 
-  **Ainda faltam** (próximas etapas, aguardando validação): ETAPA 2 —
-  nota fiscal completa (CNPJ/CPF + canais) e aplicar desconto antes do
-  fechamento; ETAPA 3 — localizar e cancelar nota já emitida (US-22).
+  **ETAPA 2 pronta e testada de verdade** (US-17 desconto; nota fiscal
+  completa parcial — ver gap abaixo). Cada comanda no fechamento ganhou
+  uma ação "Desconto" (painel inline: valor fixo ou percentual, motivo
+  obrigatório, prévia do valor abatido antes de confirmar) — chama `POST
+  /api/comandas/:id/desconto` de verdade; o valor riscado + novo subtotal
+  aparecem na lista, e o total consolidado já reflete o desconto.
+  "Solicitar nota fiscal completa" é um checkbox que abre campo de
+  CPF/CNPJ (validação leve de tamanho no front, dígito verificador real
+  no backend) + "Imprimir nota em A4" — **só o CPF/CNPJ está de fato
+  conectado** (vai em `documento` no `POST /pagamentos`, chega até a
+  emissão fiscal quando o método é cartão/débito/voucher); a distinção
+  NFC-e vs nota fiscal completa e a impressão A4/e-mail/WhatsApp da nota
+  **não existem no backend** — só NFC-e modelo 65 está implementado (ver
+  CLAUDE.md do merka-api) — e isso está documentado como TODO visível na
+  própria tela, mesmo padrão da ETAPA 1.
+
+  **Dois bugs de correção monetária real, achados e corrigidos durante
+  esta etapa** (não eram só gap de escopo — o dinheiro cobrado do cliente
+  estaria errado sem isso):
+  1. `discounts.valor` nunca tinha um valor em reais persistido (só o
+     input bruto do operador, ex: "10" — sem saber se era R$10 ou 10%) e
+     `FecharPagamento` nunca lia a tabela `discounts` — aplicar um
+     desconto não mudava em nada quanto o Caixa cobrava. Corrigido:
+     `discounts.valor_aplicado` (migration `0022`) guarda o valor já
+     calculado em reais; `FecharPagamento.Executar` agora abate a soma
+     disso do total antes de conferir os pagamentos parciais (teste:
+     `TestFecharPagamento_AbateDescontoAplicado`).
+  2. Corrigido durante o teste ao vivo desta etapa: como a comanda física
+     é reutilizada indefinidamente (`disponivel → em_uso → paga →
+     disponivel`) e desconto nunca é apagado, sem escopo por ciclo o
+     desconto do cliente de ontem ficaria abatendo o total do cliente de
+     hoje só por calhar de pegar a mesma comanda física. Corrigido
+     filtrando `discounts.aplicado_em >= comandas.aberta_em` — só conta
+     desconto do ciclo de uso atual (`internal/repository/postgres/discount_repo.go`).
+
+  **Gap relacionado, encontrado mas NÃO corrigido nesta etapa** (mesma
+  categoria de bug, escopo maior — afeta Balança/Garçom/Caixa já
+  aprovados): `order_items` tem o mesmo problema de reuso que
+  `discounts` tinha — nenhuma query de soma de total
+  (`SomarTotalAtivo`/`ListarAtivosPorComandas`/`ListarPorComanda`) filtra
+  por `aberta_em`. Hoje, um item lançado num ciclo anterior da mesma
+  comanda física continua contando no total de um cliente completamente
+  diferente depois que a comanda volta a ficar `em_uso`. Requer decisão
+  do usuário sobre escopo antes de mexer, porque toca telas já validadas.
 - **Gestor** (auditoria, relatórios) — idem, placeholder.
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo

@@ -7,8 +7,22 @@ import { conectarQZTray, imprimirCupom } from "@/lib/qz";
 
 type Comanda = { ID: string; Status: string; CodigoFisico: string };
 type OrderItem = { Valor: number; Status: "ativo" | "removido" | "estornado" };
+type Discount = { ValorAplicado: number };
 
-type ComandaFechamento = { id: string; codigo: string; subtotal: number };
+// subtotal = itensTotal - descontoAplicado. Guardamos os dois separados
+// (não só o resultado) porque um desconto percentual "congela" em cima do
+// itensTotal no momento em que é aplicado — se aplicar um segundo
+// desconto depois, ele incide sobre o que sobrou, não sobre o valor já
+// líquido (mesmo comportamento do backend, ver
+// merka-api/internal/usecase/aplicar_desconto.go).
+type ComandaFechamento = { id: string; codigo: string; itensTotal: number; descontoAplicado: number };
+
+const TIPOS_DESCONTO = [
+  { valor: "valor_fixo", label: "Valor fixo (R$)" },
+  { valor: "percentual", label: "Percentual (%)" },
+] as const;
+
+type TipoDesconto = (typeof TIPOS_DESCONTO)[number]["valor"];
 
 const METODOS = [
   { valor: "credito", label: "Crédito" },
@@ -53,6 +67,12 @@ export default function CaixaPage() {
   const [enviarWhatsapp, setEnviarWhatsapp] = useState(false);
   const [whatsappDestino, setWhatsappDestino] = useState("");
 
+  const [solicitarNotaCompleta, setSolicitarNotaCompleta] = useState(false);
+  const [documentoCliente, setDocumentoCliente] = useState("");
+  const [imprimirA4, setImprimirA4] = useState(false);
+
+  const [descontoAbertoPara, setDescontoAbertoPara] = useState<string | null>(null);
+
   const [confirmando, setConfirmando] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
 
@@ -65,7 +85,7 @@ export default function CaixaPage() {
     return proximaChaveRef.current;
   }
 
-  const total = comandas.reduce((soma, c) => soma + c.subtotal, 0);
+  const total = comandas.reduce((soma, c) => soma + (c.itensTotal - c.descontoAplicado), 0);
   const somaPagamentos = pagamentos.reduce((soma, p) => soma + p.valor, 0);
   const faltaCobrir = Math.round((total - somaPagamentos) * 100) / 100;
 
@@ -107,11 +127,11 @@ export default function CaixaPage() {
 
       const itensRes = await fetch(`/api/comandas/${encodeURIComponent(comanda.ID)}/itens`);
       const itensData = await itensRes.json().catch(() => []);
-      const subtotal = Array.isArray(itensData)
+      const itensTotal = Array.isArray(itensData)
         ? (itensData as OrderItem[]).filter((i) => i.Status === "ativo").reduce((soma, i) => soma + i.Valor, 0)
         : 0;
 
-      setComandas((atual) => [...atual, { id: comanda.ID, codigo: comanda.CodigoFisico, subtotal }]);
+      setComandas((atual) => [...atual, { id: comanda.ID, codigo: comanda.CodigoFisico, itensTotal, descontoAplicado: 0 }]);
       setCodigo("");
     } catch {
       setErroAdicionar("Sem conexão com o servidor. Confira a rede e tente de novo.");
@@ -122,6 +142,30 @@ export default function CaixaPage() {
 
   function removerComanda(id: string) {
     setComandas((atual) => atual.filter((c) => c.id !== id));
+  }
+
+  async function aplicarDesconto(
+    comandaId: string,
+    tipo: TipoDesconto,
+    valor: number,
+    motivo: string
+  ): Promise<string | null> {
+    const res = await fetch(`/api/comandas/${encodeURIComponent(comandaId)}/desconto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo, valor, motivo }),
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      return data.erro ?? "não foi possível aplicar o desconto";
+    }
+
+    const discount = data as Discount;
+    setComandas((atual) =>
+      atual.map((c) => (c.id === comandaId ? { ...c, descontoAplicado: c.descontoAplicado + discount.ValorAplicado } : c))
+    );
+    return null;
   }
 
   function adicionarPagamento() {
@@ -146,6 +190,7 @@ export default function CaixaPage() {
         body: JSON.stringify({
           comanda_ids: comandas.map((c) => c.id),
           pagamentos: pagamentos.map((p) => ({ metodo: p.metodo, valor: p.valor })),
+          documento: solicitarNotaCompleta ? documentoCliente.replace(/\D/g, "") : "",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -172,6 +217,9 @@ export default function CaixaPage() {
       setEmailDestino("");
       setEnviarWhatsapp(false);
       setWhatsappDestino("");
+      setSolicitarNotaCompleta(false);
+      setDocumentoCliente("");
+      setImprimirA4(false);
     } catch {
       setResultado({
         tipo: "erro",
@@ -184,7 +232,13 @@ export default function CaixaPage() {
   }
 
   const temNotaAutomatica = pagamentos.some((p) => METODOS_COM_NOTA_AUTOMATICA.includes(p.metodo));
-  const podeConfirmar = comandas.length > 0 && pagamentos.length > 0 && Math.abs(faltaCobrir) <= 0.005;
+  const documentoDigitos = documentoCliente.replace(/\D/g, "");
+  const documentoValido = documentoDigitos.length === 11 || documentoDigitos.length === 14;
+  const podeConfirmar =
+    comandas.length > 0 &&
+    pagamentos.length > 0 &&
+    Math.abs(faltaCobrir) <= 0.005 &&
+    (!solicitarNotaCompleta || documentoValido);
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -247,18 +301,44 @@ export default function CaixaPage() {
             <li className="py-4 text-sm text-texto-secundario">Nenhuma comanda adicionada ainda.</li>
           )}
           {comandas.map((c) => (
-            <li key={c.id} className="flex items-center justify-between border-t border-linha py-3 first:border-t-0">
-              <span className="font-mono text-base text-tinta">comanda {c.codigo}</span>
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-texto-secundario">{formatarMoeda(c.subtotal)}</span>
-                <button
-                  type="button"
-                  onClick={() => removerComanda(c.id)}
-                  className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
-                >
-                  Remover
-                </button>
+            <li key={c.id} className="border-t border-linha py-3 first:border-t-0">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-base text-tinta">comanda {c.codigo}</span>
+                <div className="flex items-center gap-4">
+                  <span className="text-sm text-texto-secundario">
+                    {c.descontoAplicado > 0 && (
+                      <span className="mr-2 line-through">{formatarMoeda(c.itensTotal)}</span>
+                    )}
+                    {formatarMoeda(c.itensTotal - c.descontoAplicado)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDescontoAbertoPara(descontoAbertoPara === c.id ? null : c.id)}
+                    className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+                  >
+                    Desconto
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removerComanda(c.id)}
+                    className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+                  >
+                    Remover
+                  </button>
+                </div>
               </div>
+
+              {descontoAbertoPara === c.id && (
+                <DescontoPanel
+                  totalAtual={c.itensTotal - c.descontoAplicado}
+                  onAplicar={async (tipo, valor, motivo) => {
+                    const erro = await aplicarDesconto(c.id, tipo, valor, motivo);
+                    if (!erro) setDescontoAbertoPara(null);
+                    return erro;
+                  }}
+                  onCancelar={() => setDescontoAbertoPara(null)}
+                />
+              )}
             </li>
           ))}
         </ul>
@@ -390,6 +470,56 @@ export default function CaixaPage() {
           )}
         </div>
 
+        <div className="mt-6 flex flex-col gap-4 border-t border-linha pt-6">
+          <label className="flex items-center justify-between gap-3">
+            <span className="text-sm text-texto-secundario">Solicitar nota fiscal completa</span>
+            <input
+              type="checkbox"
+              checked={solicitarNotaCompleta}
+              onChange={(e) => setSolicitarNotaCompleta(e.target.checked)}
+              className="h-4 w-4 accent-tinta"
+            />
+          </label>
+
+          {solicitarNotaCompleta && (
+            <>
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-texto-secundario">CPF ou CNPJ do cliente</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={documentoCliente}
+                  onChange={(e) => setDocumentoCliente(e.target.value)}
+                  placeholder="000.000.000-00"
+                  className="border-b-2 border-tinta bg-transparent py-2 font-mono text-lg text-tinta outline-none placeholder:text-texto-secundario/50 focus:border-ambar"
+                />
+                {documentoDigitos.length > 0 && !documentoValido && (
+                  <span className="text-sm text-ambar">CPF tem 11 dígitos, CNPJ tem 14 — confira o número.</span>
+                )}
+              </label>
+
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm text-texto-secundario">Imprimir nota em A4</span>
+                <input
+                  type="checkbox"
+                  checked={imprimirA4}
+                  onChange={(e) => setImprimirA4(e.target.checked)}
+                  className="h-4 w-4 accent-tinta"
+                />
+              </label>
+
+              <p className="text-sm text-texto-secundario">
+                TODO: o CPF/CNPJ é enviado de verdade e chega até a emissão fiscal quando o
+                pagamento é em cartão/débito/voucher. O restante ainda não existe no backend — não
+                há distinção entre NFC-e e nota fiscal completa (só NFC-e modelo 65 está
+                implementado), nem impressão A4/envio por e-mail/WhatsApp da nota (ver CLAUDE.md).
+                {!temNotaAutomatica &&
+                  " Nenhuma forma de pagamento adicionada aqui dispara emissão automática — sem cartão/débito/voucher, nenhuma nota sai."}
+              </p>
+            </>
+          )}
+        </div>
+
         {temNotaAutomatica && (
           <p className="mt-6 text-sm text-texto-secundario">
             Pagamento em cartão/voucher emite NFC-e automaticamente, em segundo plano — o cupom sai
@@ -419,13 +549,107 @@ async function imprimirCupomFechamento(comandas: ComandaFechamento[], pagamentos
   const linhas = [
     "MERKA",
     "--------------------------------",
-    ...comandas.map((c) => `comanda ${c.codigo}  ${formatarMoeda(c.subtotal)}`),
+    ...comandas.map((c) => `comanda ${c.codigo}  ${formatarMoeda(c.itensTotal - c.descontoAplicado)}`),
     "--------------------------------",
     `TOTAL  ${formatarMoeda(total)}`,
     ...pagamentos.map((p) => `${METODOS.find((m) => m.valor === p.metodo)?.label}  ${formatarMoeda(p.valor)}`),
   ];
 
   await imprimirCupom(linhas);
+}
+
+// DescontoPanel: valor fixo ou percentual, motivo sempre obrigatório
+// (US-17) — o backend rejeita sem motivo e rejeita se o desconto deixaria
+// o total negativo; ambos os erros já vêm com mensagem clara do backend.
+function DescontoPanel({
+  totalAtual,
+  onAplicar,
+  onCancelar,
+}: {
+  totalAtual: number;
+  onAplicar: (tipo: TipoDesconto, valor: number, motivo: string) => Promise<string | null>;
+  onCancelar: () => void;
+}) {
+  const [tipo, setTipo] = useState<TipoDesconto>("percentual");
+  const [valor, setValor] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const [aplicando, setAplicando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const valorNumero = parseFloat(valor.replace(",", "."));
+  const previa =
+    !Number.isNaN(valorNumero) && valorNumero > 0
+      ? tipo === "percentual"
+        ? (totalAtual * valorNumero) / 100
+        : valorNumero
+      : null;
+
+  async function confirmar() {
+    if (Number.isNaN(valorNumero) || valorNumero <= 0 || motivo.trim() === "" || aplicando) return;
+    setAplicando(true);
+    setErro(null);
+    const erroResposta = await onAplicar(tipo, valorNumero, motivo.trim());
+    setAplicando(false);
+    if (erroResposta) setErro(erroResposta);
+  }
+
+  return (
+    <div className="mt-3 flex flex-col gap-3 border-l-2 border-ambar pl-4">
+      <div className="flex gap-3">
+        <select
+          value={tipo}
+          onChange={(e) => setTipo(e.target.value as TipoDesconto)}
+          className="border-b border-linha bg-transparent py-2 text-sm text-tinta outline-none focus:border-ambar"
+        >
+          {TIPOS_DESCONTO.map((t) => (
+            <option key={t.valor} value={t.valor}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          placeholder={tipo === "percentual" ? "10" : "0,00"}
+          autoFocus
+          className="w-24 border-b-2 border-tinta bg-transparent py-2 text-right font-mono text-sm text-tinta outline-none placeholder:text-texto-secundario/50 focus:border-ambar"
+        />
+      </div>
+
+      <input
+        type="text"
+        value={motivo}
+        onChange={(e) => setMotivo(e.target.value)}
+        placeholder="Motivo do desconto"
+        className="border-b border-linha bg-transparent py-2 text-sm text-tinta outline-none placeholder:text-texto-secundario/50 focus:border-ambar"
+      />
+
+      {previa !== null && (
+        <p className="text-sm text-texto-secundario">
+          Reduz {formatarMoeda(previa)} do total desta comanda ({formatarMoeda(Math.max(totalAtual - previa, 0))}
+          {" "}restante).
+        </p>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={confirmar}
+          disabled={Number.isNaN(valorNumero) || valorNumero <= 0 || motivo.trim() === "" || aplicando}
+          className="bg-tinta px-4 py-2 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
+        >
+          {aplicando ? "Aplicando…" : "Aplicar desconto"}
+        </button>
+        <button type="button" onClick={onCancelar} className="text-sm text-texto-secundario hover:text-tinta">
+          Cancelar
+        </button>
+      </div>
+
+      {erro && <p className="text-sm text-ambar">{erro}</p>}
+    </div>
+  );
 }
 
 // Verificação isolada da impressora — não faz parte do fluxo de
