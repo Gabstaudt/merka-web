@@ -257,10 +257,32 @@ raramente olha só uma tela por vez.
   extras de teste (`Mesa 2`, `Mesa 3`) em
   `migrations/0021_seed_mesas_extra.sql`.
 
-- **Caixa** — placeholder navegável (`components/PlaceholderCard.tsx`),
-  UI genérica slate/Tailwind default, **ainda não migrada** pro sistema
-  de design nem conectada ao backend de verdade (os endpoints já existem
-  em merka-api).
+- **Caixa** (`app/(caixa)/caixa/page.tsx`) — **em implementação por
+  etapas** (tela mais rica, validação a cada etapa). **ETAPA 1 pronta e
+  testada de verdade** (US-13/US-14): campo de código adiciona comandas ao
+  fechamento (resolve por `GET /api/comandas/:codigo`, busca o subtotal
+  ativo de cada uma via `GET /api/comandas/:id/itens`, mesmo endpoint da
+  tela do Garçom); total consolidado em âmbar; pagamento misto (N métodos,
+  cada um com seu valor, mostra "falta cobrir" até bater); toggle
+  "Imprimir cupom?" (local, `TODO(config-tenant)`: valor padrão deveria vir
+  de config por tenant, campo não existe no backend ainda); checkboxes de
+  e-mail/WhatsApp com campo de destino (**local apenas — não existe
+  endpoint de envio de cupom por canal ainda**, documentado como TODO
+  visível na própria tela). Confirmar chama `POST /api/pagamentos` de
+  verdade; se "Imprimir cupom" estiver ligado, tenta imprimir via QZ Tray
+  (`lib/qz.ts`, integração pré-existente, real). Testado ao vivo: fechamento
+  misto PIX+dinheiro bateu o total, comanda virou `paga` no banco, os dois
+  lançamentos de `payments` foram gravados.
+
+  Emissão de NFC-e para métodos de cartão/voucher é automática no backend
+  e roda em background (`FecharPagamento.Executar`,
+  `EmitirNotaFiscal.ExecutarEmBackground`) — a resposta de `POST
+  /pagamentos` não espera a SEFAZ, então a tela não afirma "nota emitida",
+  só avisa que a emissão está a caminho quando aplicável.
+
+  **Ainda faltam** (próximas etapas, aguardando validação): ETAPA 2 —
+  nota fiscal completa (CNPJ/CPF + canais) e aplicar desconto antes do
+  fechamento; ETAPA 3 — localizar e cancelar nota já emitida (US-22).
 - **Gestor** (auditoria, relatórios) — idem, placeholder.
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo
