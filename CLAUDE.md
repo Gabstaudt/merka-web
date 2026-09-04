@@ -171,7 +171,37 @@ raramente olha só uma tela por vez.
   destino único do perfil — sem navegação além de um botão discreto de
   logout (por isso não usa `components/NavShell.tsx`, que tem breadcrumb
   "← Início"; ver `app/(porteiro)/layout.tsx`).
-- **Balança, Garçom, Caixa** — placeholders navegáveis
+- **Balança** (`app/(balanca)/balanca/page.tsx`) — **implementada de
+  verdade**, segunda aplicação do sistema de design. Tela de estação fixa
+  (tablet), duas colunas em telas largas: lançamento de peso (US-09) à
+  esquerda, histórico da estação + estorno (US-10) à direita. Fluxo:
+  código da comanda → resolve via `GET /api/comandas/:codigo` (mesmo
+  endpoint do Porteiro) → escolhe item por peso do catálogo (`GET
+  /api/produtos`) → lê peso via Web Serial (`lib/serial-balanca.ts`) ou
+  digitação manual (fallback automático, sem travar o fluxo, ver decisão
+  abaixo) → mostra o cálculo completo (bruto/tara/líquido/preço/valor)
+  antes de confirmar → `POST /api/comandas/:id/pesos`. Conflito de
+  sincronização (comanda já finalizada) usa a mensagem específica que já
+  vem do backend, distinta de erro genérico. Estorno é inline por linha do
+  histórico (sem modal), pede motivo, chama `PATCH
+  /api/order-items/:id/estornar`. Ajuste de preço/tara (US-20) é uma seção
+  recolhida por padrão, aberta por um link discreto — deixa explícito que
+  não cadastra produto novo (`PATCH /api/produtos/:id/preco-peso`). Tela
+  de destino único do perfil, mesmo padrão de header do Porteiro (sem
+  `NavShell`).
+
+  **Fallback de Web Serial**: `navigator.serial` só existe em
+  Chrome/Edge com HTTPS ou localhost, e mesmo lá depende do usuário
+  conceder permissão de porta serial interativamente — não dá pra
+  detectar de antemão se a permissão será negada, só tentar. A tela nunca
+  bloqueia à espera disso: o campo de peso bruto é sempre editável por
+  digitação (some o campo, não o fluxo), e o botão "Conectar balança" só
+  aparece quando `"serial" in navigator` é verdadeiro (checado via
+  `useSyncExternalStore`, pra não quebrar hidratação SSR); num navegador
+  sem suporte, ou se a conexão falhar, aparece direto a instrução pra
+  digitar manualmente, sem erro alarmante.
+
+- **Garçom, Caixa** — placeholders navegáveis
   (`components/PlaceholderCard.tsx`), UI genérica slate/Tailwind default,
   **ainda não migradas** pro sistema de design nem conectadas ao backend
   de verdade (os endpoints já existem em merka-api).
