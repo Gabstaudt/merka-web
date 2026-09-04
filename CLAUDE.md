@@ -23,6 +23,32 @@ eyebrow label em caixa alta, "→" decorativo em botão, tom cream+terracota)
 diretrizes pro domínio de churrascaria/comandas, não um substituto pra
 reler a skill.
 
+## Toda UI deve rodar perfeitamente em celular, tablet e computador
+
+**Isto vale pra toda sessão futura e toda tela, sem exceção.** O sistema é
+operado ao vivo em dispositivos diferentes por perfil — Porteiro/Garçom
+tipicamente em celular ou tablet na mão, Balança em tablet fixo perto da
+balança, Caixa em computador ou tablet, Gestor majoritariamente em
+computador — então nenhuma tela pode ser projetada pensando só em desktop
+e "depois adaptar". Ao criar ou alterar qualquer componente visual:
+
+- Layout fluido com unidades relativas e `flex`/`grid` (nunca largura fixa
+  em px que quebre abaixo de um certo viewport); testar mentalmente (ou de
+  fato, via devtools/responsive mode) pelo menos três larguras: celular
+  (~375px), tablet (~768px) e desktop (~1280px+).
+- Alvos de toque grandes o bastante pro dedo (não só pro cursor do mouse)
+  em qualquer tela usada em celular/tablet — Porteiro, Balança, Garçom,
+  Caixa. Gestor/Admin, mais tipicamente em computador, ainda assim não pode
+  quebrar em tablet.
+- Tipografia e espaçamento com `clamp()`/breakpoints do Tailwind quando o
+  tamanho fixo (ex: números grandes em `font-display`) não se sustenta em
+  tela pequena — nunca assumir que sobra largura.
+- PWA instalável (ver seção Stack) reforça isso: a tela precisa parecer
+  nativa tanto instalada num celular quanto aberta num monitor de caixa.
+- Nenhuma tela nova é considerada pronta sem verificar visualmente como
+  fica em pelo menos um tamanho móvel e um tamanho desktop antes de pedir
+  validação do usuário.
+
 ## O que é o Merka (resumo — ver merka-api/CLAUDE.md para o completo)
 
 Sistema de comandas para uma churrascaria (buffet self-service por peso +
