@@ -203,19 +203,37 @@ raramente olha só uma tela por vez.
 
 - **Garçom** (`app/(garcom)/garcom/page.tsx`) — **implementada de
   verdade**, terceira aplicação do sistema de design. Mobile-first (celular
-  andando pelo salão), single-column, duas telas dentro do mesmo
-  componente: lista de mesas em atendimento (com busca direta por código,
-  mesmo padrão dos outros perfis) e a comanda aberta (itens lançados +
-  total parcial + adicionar item + remover + transferir mesa). Itens de
-  peso e unitário aparecem juntos na mesma lista, distinguidos por um
-  rótulo `· peso` / `· unidade` em `font-mono` ao lado do nome do produto
-  — nenhuma seção separada, já que ao garçom interessa o lançamento
-  completo da comanda, não a origem do lançamento. Remoção (US-12) só
-  aparece em itens unitários ativos (itens de peso só se estornam pela
-  Balança, rota/permissão diferente). Total parcial usa `text-ambar` +
-  `font-display` — é literalmente "valor total", o uso canônico do
-  acento âmbar. Conflito de sincronização usa a mesma mensagem específica
-  da Balança.
+  andando pelo salão), três telas dentro do mesmo componente:
+
+  1. **Grid de mesas em atendimento** — quadrados (`aspect-square`), não
+     lista, mostrando identificador + contagem de comandas. Uma mesa pode
+     ter mais de uma comanda em_uso ao mesmo tempo (dois grupos na mesma
+     mesa); clicar numa mesa com 1 comanda abre ela direto, com 2+ leva a
+     uma tela própria (`SelecionarComandaView`, não um dropdown/expansão
+     inline no grid) pra escolher qual comanda atender antes de ir pro
+     lançamento. Busca direta por código (mesmo padrão dos outros perfis)
+     continua disponível no topo.
+  2. **Associação obrigatória de mesa** — a mesa de uma comanda só é
+     definida no primeiro lançamento do Garçom, não antes (o Porteiro não
+     associa mesa nenhuma ao entregar a comanda). Por isso, se
+     `comanda.TableID` vier nulo (comanda aberta por busca direta, ainda
+     sem mesa), a tela bloqueia com um grid de todas as mesas — inclusive
+     ocupadas, já que mais de uma comanda pode dividir a mesma mesa — antes
+     de liberar qualquer lançamento. Reaproveita a mesma rota `PATCH
+     .../mesa` que a transferência usa (funciona igual pra atribuição
+     inicial).
+  3. **Comanda aberta** — itens lançados aparecem **resumidos**: só os
+     ativos ficam sempre visíveis; itens removidos/estornados somem atrás
+     de um "Ver mais (N)" (a lista real de teste tinha uma dúzia de itens
+     removidos de sessões anteriores — sem esse corte a tela vira ruído).
+     Peso e unitário aparecem juntos na mesma lista, distinguidos por um
+     rótulo `· peso` / `· unidade` em `font-mono` ao lado do nome do
+     produto. Remoção (US-12) só aparece em itens unitários ativos (peso
+     só se estorna pela Balança, rota/permissão diferente). "Adicionar
+     item" abre um cardápio pesquisável (campo de busca por nome, filtra a
+     lista ao digitar) em vez de um `<select>` longo — mais rápido de usar
+     andando pelo salão. Total parcial usa `text-ambar` + `font-display`.
+     Conflito de sincronização usa a mesma mensagem específica da Balança.
 
   **Tempo real** (`lib/useMerkaSocket.ts`): hook que abre WebSocket com o
   backend e re-busca os itens da comanda aberta quando chega um evento
@@ -231,11 +249,12 @@ raramente olha só uma tela por vez.
 
   **Endpoints novos no backend, adicionados durante esta tela** (não
   existiam antes — a tela precisava deles pra "conectar de verdade", sem
-  dado mockado): `GET /mesas` (lista mesas + comanda em_uso associada,
-  `internal/handler/table_handler.go`) e `GET /comandas/:id/itens`
-  (lista todos os order_items de uma comanda, `ComandaHandler.ListarItens`
-  em `comanda_handler.go`) — ambos sem `RequerPermissao` (leitura, qualquer
-  perfil autenticado). Duas mesas extras de teste (`Mesa 2`, `Mesa 3`) em
+  dado mockado): `GET /mesas` (lista mesas + TODAS as comandas em_uso
+  associadas a cada uma — não é 1:1, `internal/handler/table_handler.go`)
+  e `GET /comandas/:id/itens` (lista todos os order_items de uma comanda,
+  `ComandaHandler.ListarItens` em `comanda_handler.go`) — ambos sem
+  `RequerPermissao` (leitura, qualquer perfil autenticado). Duas mesas
+  extras de teste (`Mesa 2`, `Mesa 3`) em
   `migrations/0021_seed_mesas_extra.sql`.
 
 - **Caixa** — placeholder navegável (`components/PlaceholderCard.tsx`),

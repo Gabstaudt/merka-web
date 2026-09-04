@@ -1,15 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { LogoutButton } from "@/components/LogoutButton";
 import { useMerkaSocket, type EventoWS } from "@/lib/useMerkaSocket";
 
+type ComandaResumo = { id: string; codigo_fisico: string };
+
 type Mesa = {
   id: string;
   identificador: string;
-  comanda_id: string | null;
-  codigo_fisico: string | null;
+  comandas: ComandaResumo[];
 };
 
 type Comanda = {
@@ -60,6 +61,7 @@ export default function GarcomPage() {
   const [mesas, setMesas] = useState<Mesa[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [comandaAberta, setComandaAberta] = useState<Comanda | null>(null);
+  const [mesaSelecionada, setMesaSelecionada] = useState<Mesa | null>(null);
   const [itens, setItens] = useState<OrderItem[]>([]);
   const [codigoBusca, setCodigoBusca] = useState("");
   const [buscando, setBuscando] = useState(false);
@@ -67,7 +69,6 @@ export default function GarcomPage() {
 
   const produtosUnitario = useMemo(() => produtos.filter((p) => p.TipoCobranca === "unitario"), [produtos]);
   const produtosPorId = useMemo(() => new Map(produtos.map((p) => [p.ID, p])), [produtos]);
-  const mesaAtual = mesas.find((m) => m.comanda_id === comandaAberta?.ID) ?? null;
 
   const carregarMesas = useCallback(() => {
     fetch("/api/mesas")
@@ -114,7 +115,7 @@ export default function GarcomPage() {
     )
   );
 
-  function abrirComandaSelecionada(comanda: Comanda) {
+  function abrirComanda(comanda: Comanda) {
     setComandaAberta(comanda);
     setResultado(null);
     carregarItens(comanda.ID);
@@ -148,7 +149,7 @@ export default function GarcomPage() {
         return;
       }
 
-      abrirComandaSelecionada(comanda);
+      abrirComanda(comanda);
       setCodigoBusca("");
     } catch {
       setResultado({
@@ -161,8 +162,21 @@ export default function GarcomPage() {
     }
   }
 
-  const mesasAtivas = mesas.filter((m) => m.comanda_id !== null);
+  const mesasAtivas = mesas.filter((m) => m.comandas.length > 0);
   const totalParcial = itens.filter((i) => i.Status === "ativo").reduce((soma, i) => soma + i.Valor, 0);
+
+  if (mesaSelecionada) {
+    return (
+      <SelecionarComandaView
+        mesa={mesaSelecionada}
+        onVoltar={() => setMesaSelecionada(null)}
+        onSelecionar={(c) => {
+          abrirComanda({ ID: c.id, Status: "em_uso", CodigoFisico: c.codigo_fisico, TableID: mesaSelecionada.id });
+          setMesaSelecionada(null);
+        }}
+      />
+    );
+  }
 
   if (!comandaAberta) {
     return (
@@ -177,7 +191,7 @@ export default function GarcomPage() {
           <LogoutButton />
         </header>
 
-        <main className="mx-auto flex w-full max-w-xl flex-1 flex-col px-6 py-8">
+        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
           {resultado && (
             <div key={resultado.chave} className="animate-feedback-in mb-8 border-l-2 border-ambar pl-6">
               <p className="text-sm font-medium text-ambar">
@@ -212,37 +226,56 @@ export default function GarcomPage() {
           {mesasAtivas.length === 0 ? (
             <p className="mt-4 text-sm text-texto-secundario">Nenhuma mesa com comanda em uso agora.</p>
           ) : (
-            <ul className="mt-4 flex flex-col">
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
               {mesasAtivas.map((m) => (
-                <li key={m.id} className="border-t border-linha first:border-t-0">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      abrirComandaSelecionada({
-                        ID: m.comanda_id as string,
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    if (m.comandas.length === 1) {
+                      abrirComanda({
+                        ID: m.comandas[0].id,
                         Status: "em_uso",
-                        CodigoFisico: m.codigo_fisico as string,
+                        CodigoFisico: m.comandas[0].codigo_fisico,
                         TableID: m.id,
-                      })
+                      });
+                    } else {
+                      setMesaSelecionada(m);
                     }
-                    className="flex w-full items-center justify-between py-4 text-left"
-                  >
-                    <span className="text-lg text-tinta">{m.identificador}</span>
-                    <span className="font-mono text-sm text-texto-secundario">comanda {m.codigo_fisico}</span>
-                  </button>
-                </li>
+                  }}
+                  className="flex aspect-square w-full flex-col items-center justify-center gap-1 border border-linha px-2 text-center transition-colors hover:border-tinta"
+                >
+                  <span className="text-lg text-tinta">{m.identificador}</span>
+                  <span className="font-mono text-xs text-texto-secundario">
+                    {m.comandas.length === 1 ? `comanda ${m.comandas[0].codigo_fisico}` : `${m.comandas.length} comandas`}
+                  </span>
+                </button>
               ))}
-            </ul>
+            </div>
           )}
         </main>
       </div>
     );
   }
 
+  if (comandaAberta.TableID === null) {
+    return (
+      <AssociarMesaView
+        comanda={comandaAberta}
+        mesas={mesas}
+        onVoltar={() => setComandaAberta(null)}
+        onAssociada={(mesaId) => {
+          setComandaAberta({ ...comandaAberta, TableID: mesaId });
+          carregarMesas();
+        }}
+      />
+    );
+  }
+
   return (
     <ComandaAbertaView
       comanda={comandaAberta}
-      mesaIdentificador={mesaAtual?.identificador ?? null}
+      mesaIdentificador={mesas.find((m) => m.id === comandaAberta.TableID)?.identificador ?? null}
       itens={itens}
       produtosUnitario={produtosUnitario}
       produtosPorId={produtosPorId}
@@ -258,6 +291,142 @@ export default function GarcomPage() {
         carregarMesas();
       }}
     />
+  );
+}
+
+// AssociarMesaView é obrigatória antes de qualquer lançamento numa comanda
+// sem mesa associada (comanda.TableID === null) — a mesa só é definida no
+// primeiro lançamento do Garçom, não antes. Reaproveita a mesma rota de
+// transferência (PATCH .../mesa também serve pra atribuição inicial).
+// SelecionarComandaView é uma tela própria (não um dropdown/expansão
+// dentro do grid) — uma mesa com mais de uma comanda em_uso ao mesmo
+// tempo exige escolher qual delas antes de ir pro lançamento, já que
+// itens/total são sempre de UMA comanda por vez.
+function SelecionarComandaView({
+  mesa,
+  onVoltar,
+  onSelecionar,
+}: {
+  mesa: Mesa;
+  onVoltar: () => void;
+  onSelecionar: (comanda: ComandaResumo) => void;
+}) {
+  return (
+    <div className="flex min-h-dvh flex-col">
+      <header className="flex items-center justify-between border-b border-linha px-6 py-4">
+        <button type="button" onClick={onVoltar} className="text-sm text-texto-secundario hover:text-tinta">
+          ← Mesas
+        </button>
+        <LogoutButton />
+      </header>
+
+      <main className="mx-auto flex w-full max-w-xl flex-1 flex-col px-6 py-8">
+        <p className="text-2xl text-tinta">{mesa.identificador}</p>
+        <p className="mt-1 text-sm text-texto-secundario">
+          {mesa.comandas.length} comandas nesta mesa — escolha qual atender.
+        </p>
+
+        <ul className="mt-6 flex flex-col">
+          {mesa.comandas.map((c) => (
+            <li key={c.id} className="border-t border-linha first:border-t-0">
+              <button
+                type="button"
+                onClick={() => onSelecionar(c)}
+                className="flex w-full items-center justify-between py-4 text-left"
+              >
+                <span className="font-mono text-lg text-tinta">comanda {c.codigo_fisico}</span>
+                <span className="text-sm text-texto-secundario">abrir</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </main>
+    </div>
+  );
+}
+
+function AssociarMesaView({
+  comanda,
+  mesas,
+  onVoltar,
+  onAssociada,
+}: {
+  comanda: Comanda;
+  mesas: Mesa[];
+  onVoltar: () => void;
+  onAssociada: (mesaId: string) => void;
+}) {
+  const [associando, setAssociando] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function associar(mesaId: string) {
+    setAssociando(mesaId);
+    setErro(null);
+
+    try {
+      const res = await fetch(`/api/comandas/${encodeURIComponent(comanda.ID)}/mesa`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ table_id: mesaId }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        onAssociada(mesaId);
+      } else {
+        setErro(data.erro ?? "não foi possível associar a mesa");
+      }
+    } finally {
+      setAssociando(null);
+    }
+  }
+
+  return (
+    <div className="flex min-h-dvh flex-col">
+      <header className="flex items-center justify-between border-b border-linha px-6 py-4">
+        <button type="button" onClick={onVoltar} className="text-sm text-texto-secundario hover:text-tinta">
+          ← Mesas
+        </button>
+        <LogoutButton />
+      </header>
+
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
+        <p className="font-mono text-2xl text-tinta">comanda {comanda.CodigoFisico}</p>
+        <div className="mt-4 border-l-2 border-ambar pl-6">
+          <p className="text-sm font-medium text-ambar">Sem mesa associada</p>
+          <p className="mt-1 text-base leading-snug text-tinta">
+            Esta comanda ainda não está ligada a uma mesa. Escolha a mesa antes de lançar o primeiro item.
+          </p>
+        </div>
+
+        {mesas.length === 0 ? (
+          <p className="mt-6 text-sm text-texto-secundario">Nenhuma mesa cadastrada.</p>
+        ) : (
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {mesas.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => associar(m.id)}
+                disabled={associando !== null}
+                className="flex aspect-square flex-col items-center justify-center gap-1 border border-linha px-2 text-center transition-colors hover:border-tinta disabled:opacity-40"
+              >
+                <span className="text-lg text-tinta">{m.identificador}</span>
+                <span className="font-mono text-xs text-texto-secundario">
+                  {associando === m.id
+                    ? "associando…"
+                    : m.comandas.length > 0
+                      ? `${m.comandas.length} comanda(s)`
+                      : "livre"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {erro && <p className="mt-4 text-sm text-ambar">{erro}</p>}
+      </main>
+    </div>
   );
 }
 
@@ -285,44 +454,14 @@ function ComandaAbertaView({
   onMesaTransferida: (novaMesaId: string) => void;
 }) {
   const [resultado, setResultado] = useState<Resultado | null>(null);
-  const [produtoId, setProdutoId] = useState(produtosUnitario[0]?.ID ?? "");
-  const [quantidade, setQuantidade] = useState("1");
-  const [adicionando, setAdicionando] = useState(false);
   const [removendoId, setRemovendoId] = useState<string | null>(null);
   const [motivoRemocao, setMotivoRemocao] = useState("");
   const [mostrarTransferencia, setMostrarTransferencia] = useState(false);
-  const codigoInputRef = useRef<HTMLSelectElement>(null);
+  const [mostrarAdicionar, setMostrarAdicionar] = useState(false);
+  const [verHistorico, setVerHistorico] = useState(false);
 
-  async function adicionarItem(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const produto = produtosUnitario.find((p) => p.ID === produtoId);
-    const qtd = parseFloat(quantidade.replace(",", "."));
-    if (!produto || Number.isNaN(qtd) || qtd <= 0 || adicionando) return;
-
-    setAdicionando(true);
-    try {
-      const res = await fetch(`/api/comandas/${encodeURIComponent(comanda.ID)}/itens`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ product_id: produto.ID, quantidade: qtd }),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setResultado({ tipo: "erro", mensagem: mensagemDeErro(comanda.CodigoFisico, data.erro), chave: Date.now() });
-      } else {
-        setResultado({
-          tipo: "sucesso",
-          mensagem: `${produto.Nome} lançado — ${formatarMoeda((data as OrderItem).Valor)}.`,
-          chave: Date.now(),
-        });
-        onItensAtualizados();
-        setQuantidade("1");
-      }
-    } finally {
-      setAdicionando(false);
-    }
-  }
+  const itensAtivos = itens.filter((i) => i.Status === "ativo");
+  const itensHistorico = itens.filter((i) => i.Status !== "ativo");
 
   async function confirmarRemocao(item: OrderItem) {
     if (motivoRemocao.trim() === "") return;
@@ -338,6 +477,73 @@ function ComandaAbertaView({
     }
     setRemovendoId(null);
     setMotivoRemocao("");
+  }
+
+  function ItemLinha({ item, permiteRemover }: { item: OrderItem; permiteRemover: boolean }) {
+    const produto = produtosPorId.get(item.ProductID);
+    const ehPeso = item.PesoKg !== null;
+    return (
+      <li className="border-t border-linha py-4 first:border-t-0">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-base text-tinta">
+              {produto?.Nome ?? "Produto"}{" "}
+              <span className="font-mono text-xs text-texto-secundario">{ehPeso ? "· peso" : "· unidade"}</span>
+            </p>
+            <p className="mt-1 text-sm text-texto-secundario">
+              {ehPeso ? `${item.PesoKg!.toFixed(3).replace(".", ",")} kg líquido` : `${item.Quantidade} un.`} ·{" "}
+              {item.Status === "ativo" ? formatarMoeda(item.Valor) : <span className="text-ambar">{item.Status}</span>}
+            </p>
+          </div>
+          {permiteRemover && item.Status === "ativo" && !ehPeso && (
+            <button
+              type="button"
+              onClick={() => {
+                setRemovendoId(removendoId === item.ID ? null : item.ID);
+                setMotivoRemocao("");
+              }}
+              className="shrink-0 text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+            >
+              Remover
+            </button>
+          )}
+        </div>
+
+        {removendoId === item.ID && (
+          <div className="mt-3 flex flex-col gap-3 border-l-2 border-ambar pl-4">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-texto-secundario">
+                Motivo da remoção (o lançamento original é preservado, só muda o status)
+              </span>
+              <input
+                type="text"
+                value={motivoRemocao}
+                onChange={(e) => setMotivoRemocao(e.target.value)}
+                autoFocus
+                className="border-b border-linha bg-transparent py-1 text-sm text-tinta outline-none focus:border-ambar"
+              />
+            </label>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => confirmarRemocao(item)}
+                disabled={motivoRemocao.trim() === ""}
+                className="bg-tinta px-4 py-2 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
+              >
+                Confirmar remoção
+              </button>
+              <button
+                type="button"
+                onClick={() => setRemovendoId(null)}
+                className="text-sm text-texto-secundario hover:text-tinta"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+      </li>
+    );
   }
 
   return (
@@ -370,118 +576,72 @@ function ComandaAbertaView({
         </div>
 
         <ul className="mt-2 flex flex-col">
-          {itens.length === 0 && <li className="py-4 text-sm text-texto-secundario">Nenhum item lançado ainda.</li>}
-          {itens.map((item) => {
-            const produto = produtosPorId.get(item.ProductID);
-            const ehPeso = item.PesoKg !== null;
-            return (
-              <li key={item.ID} className="border-t border-linha py-4 first:border-t-0">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-base text-tinta">
-                      {produto?.Nome ?? "Produto"}{" "}
-                      <span className="font-mono text-xs text-texto-secundario">
-                        {ehPeso ? "· peso" : "· unidade"}
-                      </span>
-                    </p>
-                    <p className="mt-1 text-sm text-texto-secundario">
-                      {ehPeso
-                        ? `${item.PesoKg!.toFixed(3).replace(".", ",")} kg líquido`
-                        : `${item.Quantidade} un.`}{" "}
-                      ·{" "}
-                      {item.Status === "ativo" ? (
-                        formatarMoeda(item.Valor)
-                      ) : (
-                        <span className="text-ambar">{item.Status}</span>
-                      )}
-                    </p>
-                  </div>
-                  {item.Status === "ativo" && !ehPeso && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRemovendoId(removendoId === item.ID ? null : item.ID);
-                        setMotivoRemocao("");
-                      }}
-                      className="shrink-0 text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
-                    >
-                      Remover
-                    </button>
-                  )}
-                </div>
-
-                {removendoId === item.ID && (
-                  <div className="mt-3 flex flex-col gap-3 border-l-2 border-ambar pl-4">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-sm text-texto-secundario">
-                        Motivo da remoção (o lançamento original é preservado, só muda o status)
-                      </span>
-                      <input
-                        type="text"
-                        value={motivoRemocao}
-                        onChange={(e) => setMotivoRemocao(e.target.value)}
-                        autoFocus
-                        className="border-b border-linha bg-transparent py-1 text-sm text-tinta outline-none focus:border-ambar"
-                      />
-                    </label>
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => confirmarRemocao(item)}
-                        disabled={motivoRemocao.trim() === ""}
-                        className="bg-tinta px-4 py-2 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
-                      >
-                        Confirmar remoção
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRemovendoId(null)}
-                        className="text-sm text-texto-secundario hover:text-tinta"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </li>
-            );
-          })}
+          {itensAtivos.length === 0 && (
+            <li className="py-4 text-sm text-texto-secundario">Nenhum item lançado ainda.</li>
+          )}
+          {itensAtivos.map((item) => (
+            <ItemLinha key={item.ID} item={item} permiteRemover />
+          ))}
         </ul>
 
-        <form onSubmit={adicionarItem} className="mt-8 flex flex-col gap-4 border-t border-linha pt-8">
-          <span className="text-sm text-texto-secundario">Adicionar item</span>
-          <div className="flex gap-3">
-            <select
-              ref={codigoInputRef}
-              value={produtoId}
-              onChange={(e) => setProdutoId(e.target.value)}
-              className="flex-1 border-b border-linha bg-transparent py-2 text-base text-tinta outline-none focus:border-ambar"
+        {itensHistorico.length > 0 && (
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setVerHistorico((v) => !v)}
+              className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
             >
-              {produtosUnitario.length === 0 && <option value="">Nenhum item unitário cadastrado</option>}
-              {produtosUnitario.map((p) => (
-                <option key={p.ID} value={p.ID}>
-                  {p.Nome} — {formatarMoeda(p.PrecoUnitario)}
-                </option>
-              ))}
-            </select>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={quantidade}
-              onChange={(e) => setQuantidade(e.target.value)}
-              className="w-16 border-b-2 border-tinta bg-transparent py-2 text-center font-mono text-lg text-tinta outline-none focus:border-ambar"
-            />
+              {verHistorico
+                ? "Ocultar histórico"
+                : `Ver mais (${itensHistorico.length} removido${itensHistorico.length > 1 ? "s" : ""}/estornado${itensHistorico.length > 1 ? "s" : ""})`}
+            </button>
+            {verHistorico && (
+              <ul className="mt-2 flex flex-col">
+                {itensHistorico.map((item) => (
+                  <ItemLinha key={item.ID} item={item} permiteRemover={false} />
+                ))}
+              </ul>
+            )}
           </div>
-          <button
-            type="submit"
-            disabled={produtosUnitario.length === 0 || adicionando}
-            className="bg-tinta px-6 py-4 text-base font-medium text-papel transition-opacity disabled:opacity-40"
-          >
-            {adicionando ? "Lançando…" : "Adicionar item"}
-          </button>
-        </form>
+        )}
 
         <div className="mt-8 border-t border-linha pt-6">
+          <button
+            type="button"
+            onClick={() => setMostrarAdicionar((v) => !v)}
+            className="bg-tinta px-6 py-4 text-base font-medium text-papel"
+          >
+            {mostrarAdicionar ? "Fechar" : "Adicionar item"}
+          </button>
+
+          {mostrarAdicionar && (
+            <AdicionarItemPanel
+              produtos={produtosUnitario}
+              onLancar={async (produto, quantidade) => {
+                const res = await fetch(`/api/comandas/${encodeURIComponent(comanda.ID)}/itens`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ product_id: produto.ID, quantidade }),
+                });
+                const data = await res.json().catch(() => ({}));
+
+                if (!res.ok) {
+                  setResultado({ tipo: "erro", mensagem: mensagemDeErro(comanda.CodigoFisico, data.erro), chave: Date.now() });
+                } else {
+                  setResultado({
+                    tipo: "sucesso",
+                    mensagem: `${produto.Nome} lançado — ${formatarMoeda((data as OrderItem).Valor)}.`,
+                    chave: Date.now(),
+                  });
+                  onItensAtualizados();
+                  setMostrarAdicionar(false);
+                }
+              }}
+            />
+          )}
+        </div>
+
+        <div className="mt-6 border-t border-linha pt-6">
           <button
             type="button"
             onClick={() => setMostrarTransferencia((v) => !v)}
@@ -493,7 +653,7 @@ function ComandaAbertaView({
           {mostrarTransferencia && (
             <TransferenciaMesa
               comandaId={comanda.ID}
-              mesaAtualId={mesaIdentificador ? mesas.find((m) => m.identificador === mesaIdentificador)?.id ?? null : null}
+              mesaAtualId={comanda.TableID}
               mesas={mesas}
               onTransferida={(novaMesaId) => {
                 onMesaTransferida(novaMesaId);
@@ -503,6 +663,105 @@ function ComandaAbertaView({
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+// AdicionarItemPanel: cardápio pesquisável — o Garçom digita pra filtrar
+// em vez de rolar um <select> longo, útil andando pelo salão.
+function AdicionarItemPanel({
+  produtos,
+  onLancar,
+}: {
+  produtos: Produto[];
+  onLancar: (produto: Produto, quantidade: number) => Promise<void>;
+}) {
+  const [busca, setBusca] = useState("");
+  const [selecionado, setSelecionado] = useState<Produto | null>(null);
+  const [quantidade, setQuantidade] = useState("1");
+  const [lancando, setLancando] = useState(false);
+
+  const filtrados = produtos.filter((p) => p.Nome.toLowerCase().includes(busca.trim().toLowerCase()));
+
+  async function confirmar() {
+    const qtd = parseFloat(quantidade.replace(",", "."));
+    if (!selecionado || Number.isNaN(qtd) || qtd <= 0 || lancando) return;
+    setLancando(true);
+    try {
+      await onLancar(selecionado, qtd);
+    } finally {
+      setLancando(false);
+    }
+  }
+
+  if (selecionado) {
+    return (
+      <div className="mt-4 flex flex-col gap-4 border-l-2 border-ambar pl-4">
+        <div className="flex items-center justify-between">
+          <p className="text-base text-tinta">
+            {selecionado.Nome} — {formatarMoeda(selecionado.PrecoUnitario)}
+          </p>
+          <button
+            type="button"
+            onClick={() => setSelecionado(null)}
+            className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+          >
+            Trocar
+          </button>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-texto-secundario">Quantidade</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={quantidade}
+            onChange={(e) => setQuantidade(e.target.value)}
+            autoFocus
+            className="w-24 border-b-2 border-tinta bg-transparent py-2 text-center font-mono text-lg text-tinta outline-none focus:border-ambar"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={confirmar}
+          disabled={lancando}
+          className="self-start bg-tinta px-6 py-3 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
+        >
+          {lancando ? "Lançando…" : "Lançar item"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 flex flex-col gap-3 border-l-2 border-linha pl-4">
+      <input
+        type="text"
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+        placeholder="Buscar no cardápio…"
+        autoFocus
+        className="border-b border-linha bg-transparent py-2 text-base text-tinta outline-none placeholder:text-texto-secundario/60 focus:border-ambar"
+      />
+      {produtos.length === 0 ? (
+        <p className="text-sm text-texto-secundario">Nenhum item unitário cadastrado.</p>
+      ) : filtrados.length === 0 ? (
+        <p className="text-sm text-texto-secundario">Nada encontrado para &quot;{busca}&quot;.</p>
+      ) : (
+        <ul className="flex max-h-64 flex-col overflow-y-auto">
+          {filtrados.map((p) => (
+            <li key={p.ID} className="border-t border-linha first:border-t-0">
+              <button
+                type="button"
+                onClick={() => setSelecionado(p)}
+                className="flex w-full items-center justify-between py-3 text-left"
+              >
+                <span className="text-base text-tinta">{p.Nome}</span>
+                <span className="font-mono text-sm text-texto-secundario">{formatarMoeda(p.PrecoUnitario)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -518,63 +777,54 @@ function TransferenciaMesa({
   mesas: Mesa[];
   onTransferida: (novaMesaId: string) => void;
 }) {
-  const mesasDisponiveis = mesas.filter((m) => m.id !== mesaAtualId && m.comanda_id === null);
-  const [novaMesaId, setNovaMesaId] = useState(mesasDisponiveis[0]?.id ?? "");
-  const [transferindo, setTransferindo] = useState(false);
+  const mesasDisponiveis = mesas.filter((m) => m.id !== mesaAtualId);
+  const [transferindoId, setTransferindoId] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
-  async function transferir() {
-    if (novaMesaId === "" || transferindo) return;
-    setTransferindo(true);
+  async function transferir(mesaId: string) {
+    setTransferindoId(mesaId);
     setErro(null);
 
     try {
       const res = await fetch(`/api/comandas/${encodeURIComponent(comandaId)}/mesa`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ table_id: novaMesaId }),
+        body: JSON.stringify({ table_id: mesaId }),
       });
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        onTransferida(novaMesaId);
+        onTransferida(mesaId);
       } else {
         setErro(data.erro ?? "não foi possível transferir a mesa");
       }
     } finally {
-      setTransferindo(false);
+      setTransferindoId(null);
     }
   }
 
   if (mesasDisponiveis.length === 0) {
-    return <p className="mt-4 text-sm text-texto-secundario">Nenhuma mesa livre no momento.</p>;
+    return <p className="mt-4 text-sm text-texto-secundario">Nenhuma outra mesa cadastrada.</p>;
   }
 
   return (
     <div className="mt-4 flex flex-col gap-4 border-l-2 border-linha pl-4">
-      <label className="flex flex-col gap-1">
-        <span className="text-sm text-texto-secundario">Nova mesa</span>
-        <select
-          value={novaMesaId}
-          onChange={(e) => setNovaMesaId(e.target.value)}
-          className="border-b border-linha bg-transparent py-2 text-sm text-tinta outline-none focus:border-ambar"
-        >
-          {mesasDisponiveis.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.identificador}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <button
-        type="button"
-        onClick={transferir}
-        disabled={transferindo}
-        className="self-start bg-tinta px-4 py-2 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
-      >
-        {transferindo ? "Transferindo…" : "Confirmar transferência"}
-      </button>
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+        {mesasDisponiveis.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => transferir(m.id)}
+            disabled={transferindoId !== null}
+            className="flex aspect-square flex-col items-center justify-center gap-1 border border-linha px-2 text-center transition-colors hover:border-tinta disabled:opacity-40"
+          >
+            <span className="text-base text-tinta">{m.identificador}</span>
+            <span className="font-mono text-xs text-texto-secundario">
+              {transferindoId === m.id ? "…" : m.comandas.length > 0 ? `${m.comandas.length} comanda(s)` : "livre"}
+            </span>
+          </button>
+        ))}
+      </div>
 
       {erro && <p className="text-sm text-ambar">{erro}</p>}
     </div>
