@@ -108,8 +108,9 @@ export default function PorteiroPage() {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="flex items-center justify-between border-b border-linha px-6 py-4">
-        <div className="flex items-baseline gap-2">
-          <span className="font-display text-lg text-tinta">Merka</span>
+        <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element -- fundo desta tela é sempre Papel (claro), sem modo escuro — ver CLAUDE.md */}
+          <img src="/logos/merka-logo.svg" alt="Merka" className="h-6 w-auto" />
           <span className="text-linha">/</span>
           <span className="text-sm text-texto-secundario">Porteiro</span>
         </div>

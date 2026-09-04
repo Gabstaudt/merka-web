@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { LogoutButton } from "./LogoutButton";
+import { MerkaLogo } from "./MerkaLogo";
 
 /**
  * Cabeçalho compartilhado pelas telas por perfil — mostra qual área está
@@ -18,6 +19,8 @@ export function NavShell({
     <div className="flex min-h-dvh flex-col">
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
         <div className="flex items-center gap-3">
+          <MerkaLogo className="h-6 w-auto" />
+          <span className="text-slate-300 dark:text-slate-700">/</span>
           <Link href="/" className="text-sm font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100">
             ← Início
           </Link>

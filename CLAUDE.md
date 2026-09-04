@@ -75,6 +75,37 @@ escassez. Isso é uma decisão de marca, não um detalhe estético — não
 - **IBM Plex Sans** (`font-sans`) — labels, ações, texto de interface.
 - **IBM Plex Mono** (`font-mono`) — códigos de comanda, timestamps, protocolos. Não é decoração: cupons/recibos reais são compostos assim, é autenticidade com o objeto físico.
 
+### Uso da marca/logos
+
+Arquivos em `public/logos/` — **nunca editar/recriar os SVGs, nunca usar
+um arquivo fora do contexto abaixo** (ex: nunca `merka-symbol.svg` como
+logo de header, nunca PNG em tela onde um SVG serviria). Sempre SVG em
+tela; PNG só nos contextos que exigem raster (PDF, e-mail, manifest).
+
+| Arquivo | Contexto de uso |
+|---|---|
+| `merka-logo.svg` | Lockup principal (ícone + nome), fundo **claro** (Papel/Branco da marca) — header de toda área logada (`components/NavShell.tsx`) e tela de login. Componente `components/MerkaLogo.tsx` já encapsula a troca automática pra `merka-logo-inverse.svg` em modo escuro via `<picture>`/`prefers-color-scheme` — usar esse componente em qualquer lugar com fundo claro que possa alternar pra escuro (a maioria das telas com `dark:` no Tailwind). Em telas de tema único e sempre-claro (ex: Porteiro, que não define nenhuma classe `dark:`), usar `<img>` direto com `merka-logo.svg` — não precisa do componente. |
+| `merka-logo-inverse.svg` | Mesmo lockup, fundo **escuro** (Tinta ou similar) — usado automaticamente por `MerkaLogo`; só referenciar direto se alguma tela nova tiver fundo escuro fixo (não condicional a dark mode). |
+| `merka-symbol.svg` / `.png` | Só o M com a barra âmbar, sem quadrado — marca d'água discreta (loading, watermark de relatório exportado). **Nunca como logo principal de header.** |
+| `merka-icon.svg` | Ícone quadrado (M no tile) — favicon SVG fallback, ícone do manifest PWA, avatar sem foto. |
+| `merka-icon-inverse.svg` | Mesmo ícone, fundo escuro (ex: barra de navegação escura, se algum dia existir). |
+| `merka-icon-mono.svg` | Uma cor só, sem âmbar — **exclusivamente impressão térmica P&B** (cabeçalho do cupom NFC-e). Ainda não aplicado em código (a geração do cupom térmico, US-14, é tarefa separada) — quando for implementada, é este o arquivo correto, não `merka-icon.svg`. |
+| `merka-icon-simple.svg` | Traço mais grosso, sem barra — contextos ≤32px onde `merka-icon.svg` perde detalhe. Usado como favicon primário (`app/layout.tsx`, `metadata.icons`). |
+| `merka-logo.png` / `merka-logo-inverse.png` (1404px) | Raster do lockup — **PDF gerado pelo sistema** (NF-e completa/DANFE A4, US-19) e **e-mail transacional** (cupom/nota por e-mail). Ainda não aplicado (tarefas de impressão/PDF são separadas) — este é o arquivo correto quando forem implementadas. |
+| `merka-icon.png` / `merka-icon-inverse.png` (512×512) | Ícones do manifest PWA (`public/manifest.json`, 192×192 e 512×512 — mesmo arquivo, o navegador reamostra). |
+| `merka-symbol.png` (512px) | Watermark em relatório PDF exportado pelo Gestor (equivalente raster do SVG). |
+| `favicon-32.png` | Fallback do favicon pra navegador sem suporte a favicon SVG (`metadata.icons` em `app/layout.tsx`). |
+
+**Favicon configurado**: `merka-icon-simple.svg` primário +
+`favicon-32.png` fallback, via `metadata.icons` em `app/layout.tsx` —
+substituiu o `app/favicon.ico` padrão do create-next-app (removido).
+
+**Pendente, de propósito, fora desta tarefa**: nenhum logo foi aplicado
+na geração do cupom térmico nem no PDF de nota fiscal — isso pertence às
+tarefas de impressão (US-14/US-19), ainda não implementadas. Quando
+forem: cupom térmico usa `merka-icon-mono.svg`, PDF A4 usa
+`merka-logo.png`/`merka-logo-inverse.png` (ver tabela acima).
+
 ### Layout
 
 - Alinhamento à esquerda, estrutura por **linhas com regra fina**

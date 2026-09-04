@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import { MerkaLogo } from "@/components/MerkaLogo";
+
 export default function LoginPage() {
   const router = useRouter();
   const [login, setLogin] = useState("");
@@ -45,8 +47,8 @@ export default function LoginPage() {
         onSubmit={handleSubmit}
         className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
       >
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Merka</h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Entre com seu usuário</p>
+        <MerkaLogo className="h-7 w-auto" />
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Entre com seu usuário</p>
 
         <div className="mt-6 flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm">

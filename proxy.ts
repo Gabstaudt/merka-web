@@ -33,7 +33,8 @@ export const config = {
   // Não intercepta /api/**: os Route Handlers ali dentro fazem sua própria
   // checagem (repassam o Bearer token pro backend, que responde 401 se
   // inválido/ausente — redirecionar uma chamada fetch() pro HTML de
-  // /login quebraria o cliente). Também ignora assets estáticos e os
-  // arquivos da PWA (manifest, service worker, ícone).
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon.svg).*)"],
+  // /login quebraria o cliente). Também ignora assets estáticos, os
+  // arquivos da PWA (manifest, service worker, ícone) e public/logos/ —
+  // a marca precisa aparecer até na tela de login, sem sessão.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon.svg|logos/).*)"],
 };

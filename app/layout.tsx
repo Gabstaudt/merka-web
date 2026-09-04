@@ -36,6 +36,17 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Merka",
   },
+  // Favicon da marca (ver CLAUDE.md, "Uso da marca/logos"): SVG vetorial
+  // primeiro (merka-icon-simple.svg — traço mais grosso, feito pra
+  // renderizar pequeno na aba do navegador), PNG 32×32 como fallback pra
+  // navegadores sem suporte a favicon em SVG. Substitui o
+  // app/favicon.ico padrão do create-next-app (removido).
+  icons: {
+    icon: [
+      { url: "/logos/merka-icon-simple.svg", type: "image/svg+xml" },
+      { url: "/logos/favicon-32.png", sizes: "32x32", type: "image/png" },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
