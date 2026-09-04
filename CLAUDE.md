@@ -134,12 +134,17 @@ raramente olha só uma tela por vez.
 
 - **Porteiro** (`app/(porteiro)/porteiro/page.tsx`) — **implementada de
   verdade**, primeira aplicação do sistema de design (prova de conceito).
-  Conectada a `POST /comandas/:codigo/abrir` (US-07) e
-  `POST /comandas/:codigo/liberar` (US-08) via proxy em
-  `app/api/comandas/[codigo]/{abrir,liberar}/route.ts`. Tela de destino
-  único do perfil — sem navegação além de um botão discreto de logout
-  (por isso não usa `components/NavShell.tsx`, que tem breadcrumb "←
-  Início"; ver `app/(porteiro)/layout.tsx`).
+  Um único campo + um único botão ("Passar comanda") — o porteiro só
+  escaneia, **não escolhe** entre entregar/receber. O fluxo consulta
+  `GET /comandas/:codigo` (via proxy `app/api/comandas/[codigo]/route.ts`)
+  pra saber o status atual e decide sozinho a próxima chamada:
+  `disponivel` → `POST .../abrir` (US-07, entrega ao cliente);
+  `paga` → `POST .../liberar` (US-08, recebe na saída); `em_uso` →
+  bloqueado, mensagem clara (cliente ainda não fechou a conta). Rotas
+  proxy em `app/api/comandas/[codigo]/{,abrir,liberar}/route.ts`. Tela de
+  destino único do perfil — sem navegação além de um botão discreto de
+  logout (por isso não usa `components/NavShell.tsx`, que tem breadcrumb
+  "← Início"; ver `app/(porteiro)/layout.tsx`).
 - **Balança, Garçom, Caixa** — placeholders navegáveis
   (`components/PlaceholderCard.tsx`), UI genérica slate/Tailwind default,
   **ainda não migradas** pro sistema de design nem conectadas ao backend

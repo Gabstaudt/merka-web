@@ -14,34 +14,41 @@ type Comanda = {
   FechadaEm: string | null;
 };
 
-type Acao = "entregar" | "receber";
-
 type Resultado =
-  | { tipo: "sucesso"; acao: Acao; comanda: Comanda; horario: string; chave: number }
-  | { tipo: "erro"; acao: Acao; codigo: string; mensagem: string; chave: number };
+  | { tipo: "liberada"; comanda: Comanda; horario: string; chave: number }
+  | { tipo: "recebida"; comanda: Comanda; horario: string; chave: number }
+  | { tipo: "erro"; codigo: string; mensagem: string; chave: number };
+
+// O porteiro só escaneia — não escolhe "entregar" ou "receber" na tela.
+// O sistema consulta o status atual da comanda e decide sozinho a
+// próxima ação (US-07/US-08):
+//   disponivel -> entregar ao cliente (POST /abrir)
+//   paga       -> receber na saída, liberar pro estoque (POST /liberar)
+//   em_uso     -> bloqueado: cliente ainda está com a comanda, sem pagar
+function proximaAcao(status: string): "abrir" | "liberar" | null {
+  if (status === "disponivel") return "abrir";
+  if (status === "paga") return "liberar";
+  return null;
+}
 
 // Traduz o erro cru do backend (já em português simples, ver
-// merka-api/internal/usecase/{abrir,liberar}_comanda.go) pro tom de voz
-// da interface: sempre "o que houve" + "o que fazer", nunca "ops" nem
-// pedido de desculpa — e sempre com o código da comanda na frase, porque
-// é a informação que o porteiro precisa repassar a quem está na fila.
-function mensagemDeErro(codigo: string, erroBackend: string): string {
-  if (erroBackend.includes("não encontrada")) {
+// merka-api/internal/usecase/{consultar,abrir,liberar}_comanda.go) pro
+// tom de voz da interface: sempre "o que houve" + "o que fazer", nunca
+// "ops" nem pedido de desculpa — sempre com o código da comanda na frase.
+function mensagemDeErro(codigo: string, status: string | null, erroBackend?: string): string {
+  if (status === "em_uso") {
+    return `Comanda ${codigo} está em uso. O cliente ainda não fechou a conta no caixa.`;
+  }
+  if (erroBackend?.includes("não encontrada")) {
     return `Comanda ${codigo} não encontrada. Confira o código e tente de novo.`;
   }
-  if (erroBackend.includes("saldo") || erroBackend.includes("ainda não foi paga")) {
-    return `Comanda ${codigo} ainda não foi paga. Direcione o cliente ao caixa.`;
-  }
-  if (erroBackend.includes("não está disponível")) {
-    return `Comanda ${codigo} já está em uso. Confira se ela já foi entregue.`;
-  }
-  return `Comanda ${codigo}: ${erroBackend}`;
+  return `Comanda ${codigo}: ${erroBackend ?? "não foi possível concluir"}`;
 }
 
 export default function PorteiroPage() {
   const [codigo, setCodigo] = useState("");
   const [resultado, setResultado] = useState<Resultado | null>(null);
-  const [carregando, setCarregando] = useState<Acao | null>(null);
+  const [carregando, setCarregando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // O leitor de código de barras simula digitação + Enter — depois de
@@ -51,15 +58,39 @@ export default function PorteiroPage() {
     inputRef.current?.focus();
   }, [resultado]);
 
-  async function executar(acao: Acao) {
+  async function passarComanda(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     const codigoAtual = codigo.trim();
     if (codigoAtual === "" || carregando) return;
 
-    setCarregando(acao);
-    const rota = acao === "entregar" ? "abrir" : "liberar";
+    setCarregando(true);
 
     try {
-      const res = await fetch(`/api/comandas/${encodeURIComponent(codigoAtual)}/${rota}`, {
+      const consulta = await fetch(`/api/comandas/${encodeURIComponent(codigoAtual)}`);
+      const dadosConsulta = await consulta.json().catch(() => ({}));
+
+      if (!consulta.ok) {
+        setResultado({
+          tipo: "erro",
+          codigo: codigoAtual,
+          mensagem: mensagemDeErro(codigoAtual, null, dadosConsulta.erro),
+          chave: Date.now(),
+        });
+        return;
+      }
+
+      const acao = proximaAcao(dadosConsulta.Status);
+      if (!acao) {
+        setResultado({
+          tipo: "erro",
+          codigo: codigoAtual,
+          mensagem: mensagemDeErro(codigoAtual, dadosConsulta.Status),
+          chave: Date.now(),
+        });
+        return;
+      }
+
+      const res = await fetch(`/api/comandas/${encodeURIComponent(codigoAtual)}/${acao}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -69,15 +100,13 @@ export default function PorteiroPage() {
       if (!res.ok) {
         setResultado({
           tipo: "erro",
-          acao,
           codigo: codigoAtual,
-          mensagem: mensagemDeErro(codigoAtual, data.erro ?? "não foi possível concluir"),
+          mensagem: mensagemDeErro(codigoAtual, null, data.erro),
           chave: Date.now(),
         });
       } else {
         setResultado({
-          tipo: "sucesso",
-          acao,
+          tipo: acao === "abrir" ? "liberada" : "recebida",
           comanda: data as Comanda,
           horario: new Date().toLocaleTimeString("pt-BR"),
           chave: Date.now(),
@@ -86,23 +115,14 @@ export default function PorteiroPage() {
     } catch {
       setResultado({
         tipo: "erro",
-        acao,
         codigo: codigoAtual,
         mensagem: "Sem conexão com o servidor. Confira a rede e tente de novo.",
         chave: Date.now(),
       });
     } finally {
       setCodigo("");
-      setCarregando(null);
+      setCarregando(false);
     }
-  }
-
-  // Enter no campo (inclusive vindo do leitor de código de barras) aciona
-  // "Entregar" — é o fluxo mais frequente numa entrada (cliente chegando).
-  // "Receber" fica só no botão explícito, pra devolução na saída.
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    executar("entregar");
   }
 
   return (
@@ -124,22 +144,22 @@ export default function PorteiroPage() {
             className="animate-feedback-in border-b border-linha px-6 py-10 sm:px-10 sm:py-14"
           >
             <div className="border-l-2 border-ambar pl-6">
-              {resultado.tipo === "sucesso" ? (
-                <>
-                  <p className="text-sm font-medium text-ambar">
-                    {resultado.acao === "entregar" ? "Liberada ao cliente" : "Recebida, pronta pro próximo cliente"}
-                  </p>
-                  <p className="mt-2 font-display text-6xl text-tinta sm:text-7xl">
-                    {resultado.comanda.CodigoFisico}
-                  </p>
-                  <p className="mt-3 font-mono text-sm text-texto-secundario">{resultado.horario}</p>
-                </>
-              ) : (
+              {resultado.tipo === "erro" ? (
                 <>
                   <p className="text-sm font-medium text-ambar">Não foi possível concluir</p>
                   <p className="mt-2 max-w-xl text-2xl leading-snug text-tinta sm:text-3xl">
                     {resultado.mensagem}
                   </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-ambar">
+                    {resultado.tipo === "liberada" ? "Liberada ao cliente" : "Recebida, pronta pro próximo cliente"}
+                  </p>
+                  <p className="mt-2 font-display text-6xl text-tinta sm:text-7xl">
+                    {resultado.comanda.CodigoFisico}
+                  </p>
+                  <p className="mt-3 font-mono text-sm text-texto-secundario">{resultado.horario}</p>
                 </>
               )}
             </div>
@@ -147,7 +167,7 @@ export default function PorteiroPage() {
         )}
 
         <div className="flex flex-1 flex-col justify-center px-6 py-10 sm:px-10">
-          <form onSubmit={handleSubmit} className="mx-auto flex w-full max-w-xl flex-col gap-8">
+          <form onSubmit={passarComanda} className="mx-auto flex w-full max-w-xl flex-col gap-8">
             <label className="flex flex-col gap-3">
               <span className="text-sm text-texto-secundario">Código da comanda</span>
               <input
@@ -162,23 +182,13 @@ export default function PorteiroPage() {
               />
             </label>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <button
-                type="submit"
-                disabled={codigo.trim() === "" || carregando !== null}
-                className="flex-1 bg-tinta px-6 py-4 text-base font-medium text-papel transition-opacity disabled:opacity-40"
-              >
-                {carregando === "entregar" ? "Entregando…" : "Entregar comanda"}
-              </button>
-              <button
-                type="button"
-                onClick={() => executar("receber")}
-                disabled={codigo.trim() === "" || carregando !== null}
-                className="flex-1 border border-tinta px-6 py-4 text-base font-medium text-tinta transition-opacity disabled:opacity-40"
-              >
-                {carregando === "receber" ? "Recebendo…" : "Receber comanda"}
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={codigo.trim() === "" || carregando}
+              className="bg-tinta px-6 py-4 text-base font-medium text-papel transition-opacity disabled:opacity-40"
+            >
+              {carregando ? "Verificando…" : "Passar comanda"}
+            </button>
           </form>
         </div>
       </main>
