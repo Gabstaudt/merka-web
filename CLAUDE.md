@@ -579,29 +579,78 @@ raramente olha só uma tela por vez.
   o usuário `garcom` passou a ter essa permissão de verdade no banco —
   revertido depois pra não deixar o ambiente de dev alterado.
 
-  **ETAPA 3 (aba "Configurações") — verificado, e o endpoint NÃO
-  existe.** `pricing_rules` (`migrations/0003_pricing_rules.sql`: chave,
-  configuracao jsonb, ativo) é só uma tabela SQL desde o início do
-  projeto — nenhum domain struct, repository, usecase, handler ou rota
-  foi implementado sobre ela. Por instrução explícita do usuário, **não
-  inventei um endpoint**: `app/(gestor)/gestor/configuracoes/page.tsx`
-  é uma tela real (navegável, dentro do sistema de design, atrás da
-  mesma permissão `criar_perfil`), mas mostra um aviso claro —
-  "Aguardando endpoint no backend" — em vez de simular taxa de
-  serviço/rodízio por pessoa com dado falso. Fica pronta assim que
-  alguém implementar `GET/PUT /configuracoes` (ou rota equivalente)
-  no backend — tarefa separada, de backend.
+  **ETAPA 3 — atualização: o backend de `pricing_rules` e de mesas foi
+  implementado depois** (pedido explícito do usuário: "faça o que falta
+  e siga"). `app/(gestor)/gestor/configuracoes/page.tsx` agora é a tela
+  real, não mais um aviso de bloqueio:
+  - **Taxa de serviço / Rodízio por pessoa**: formulário real (percentual
+    ou valor + ativo/inativo) usando `GET/PUT /api/configuracoes/:chave`
+    — endpoints novos no backend (`domain/pricing_rule.go`,
+    `internal/handler/pricing_rule_handler.go`,
+    `internal/repository/postgres/pricing_rule_repo.go`), upsert por
+    chave via `UNIQUE (tenant_id, chave)` (migration `0025`) — salvar a
+    mesma chave duas vezes nunca duplica, sempre atualiza.
+  - **Gestão de mesas**: cadastrar, renomear, desativar/reativar — mesa
+    nunca é deletada (comandas históricas podem referenciar
+    `table_id`), só ganha `ativo=false` (migration `0024`, coluna nova em
+    `tables`). Endpoints novos: `GET /mesas/todas`, `POST /mesas`,
+    `PATCH /mesas/:id`, `PATCH /mesas/:id/{desativar,reativar}` — todos
+    sob `configurar_sistema`, a mesma permissão de configurações
+    estruturais. `GET /mesas` (usada pelo Garçom, US-16) passou a
+    filtrar `ativo=true`, então uma mesa desativada aqui some
+    automaticamente da tela do Garçom sem precisar de nenhuma mudança lá.
+  Testado ao vivo: taxa de serviço 10% salva e persistida
+  (`pricing_rules.configuracao = {"percentual": 10}`), mesa "Mesa
+  Varanda" criada e confirmada no banco — ambos revertidos depois pra
+  não sujar o ambiente de dev.
 
-  **Com isto, a extensão do painel pro Admin Super está completa** (as 3
-  etapas pedidas): acesso condicional por permissão (não por nome de
-  role), CRUD de Perfis e Permissões, e Configurações honestamente
-  bloqueada até existir backend. Isso fecha o conjunto completo de telas
-  planejadas para o frontend do Merka nesta rodada — ver resumo geral no
-  topo desta seção "Estado atual das telas" pra todas as 6 áreas
-  (Porteiro, Balança, Garçom, Caixa, Gestor, Admin Super).
-- **Login** — ainda no visual genérico anterior ao sistema de design;
-  candidato óbvio pra próxima migração (é a primeira tela que todo
-  usuário vê).
+  **Envio de cupom por e-mail — implementado de verdade** (mesmo padrão
+  arquitetural de `internal/fiscal`: uma interface pequena com Mock
+  (padrão em dev) e implementação real). Novo pacote
+  `internal/notificacao` (`EmailSender`, `MockEmailSender`,
+  `SMTPEmailSender` — real via `net/smtp`, ativado com
+  `EMAIL_PROVIDER=smtp` + `SMTP_HOST/PORT/USER/PASSWORD/FROM`) +
+  endpoint `POST /pagamentos/:id/enviar-nota` (`canal: "email"`, exige
+  nota já emitida). Botão "Enviar por e-mail" adicionado em toda lista
+  de notas fiscais que já existia (ícone da Caixa, aba Notas Fiscais do
+  Gestor) e também logo após o fechamento na Caixa (melhor esforço —
+  como a emissão roda em background, ver nota abaixo). Testado ao vivo
+  via curl: envio real logado pelo `MockEmailSender`
+  (`[MOCK] e-mail 'seria' enviado para cliente@teste.com`).
+
+  **WhatsApp — deliberadamente NÃO implementado, com recusa explícita.**
+  Enviar mensagem de WhatsApp de verdade exige conta de provedor externo
+  (Twilio, Meta Business API) com credenciais próprias, que não existem
+  aqui. O backend recusa `canal: "whatsapp"` com HTTP 501 e uma mensagem
+  clara em vez de fingir sucesso — testado ao vivo, confirma o 501. O
+  checkbox de WhatsApp na Caixa ficou visualmente desabilitado com a
+  mesma explicação, em vez de escondido ou fingindo funcionar.
+
+  **Nota fiscal completa (NF-e modelo 55) — deliberadamente NÃO
+  implementada.** Diferente de NFC-e (modelo 65, já implementado e em
+  produção neste projeto), uma NF-e completa é um schema de XML inteiro
+  à parte, com regras de assinatura/submissão próprias — e CLAUDE.md do
+  backend já registra o alerta explícito do usuário: "XML de nota fiscal
+  incorreto tem implicação tributária/legal real — validar com
+  contador/consultor tributário antes de emissão em produção". Fabricar
+  essa distinção às pressas seria exatamente o tipo de risco que esse
+  aviso pede pra evitar. `tipo_documento` já existe como coluna em
+  `fiscal_receipts` (default `'nfce'`), pronta pra quando essa
+  implementação for feita como projeto à parte.
+
+  **Com isto, a extensão do painel pro Admin Super está completa**, e a
+  lista de pendências da rodada anterior foi resolvida no que era
+  seguro resolver: mesas (CRUD completo), `pricing_rules` (CRUD
+  completo), e-mail (real, com mock em dev). WhatsApp e nota fiscal
+  completa continuam de fora, mas agora por avaliação explícita de
+  risco/escopo, não por falta de verificação.
+- **Login** (`app/(auth)/login/page.tsx`) — **redesenhado com o sistema
+  de design**: fundo `papel`, sem card com sombra/borda arredondada,
+  estrutura por linha fina (mesmo padrão de Porteiro/Balança/Garçom/
+  Caixa) em vez do visual genérico anterior. Logo Fraunces + campos com
+  `border-b-2` que viram `ambar` no foco, erro do backend em texto âmbar
+  simples. Testado ao vivo: senha errada mostra a mensagem real do
+  backend inline; login correto redireciona pro hub (`/`) normalmente.
 
 Próximo passo natural: replicar o padrão do Porteiro nas demais telas
 operacionais (Balança, Garçom, Caixa), uma de cada vez, revalidando com o

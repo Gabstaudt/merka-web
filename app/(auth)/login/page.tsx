@@ -35,24 +35,23 @@ export default function LoginPage() {
       router.push("/");
       router.refresh();
     } catch {
-      setErro("erro de conexão com o servidor");
+      setErro("Sem conexão com o servidor. Confira a rede e tente de novo.");
     } finally {
       setCarregando(false);
     }
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center p-6">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-      >
-        <MerkaLogo className="h-7 w-auto" />
-        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Entre com seu usuário</p>
+    <main className="flex min-h-dvh items-center justify-center bg-papel px-6">
+      <form onSubmit={handleSubmit} className="flex w-full max-w-xs flex-col gap-8">
+        <div>
+          <MerkaLogo className="h-8 w-auto" />
+          <p className="mt-3 text-sm text-texto-secundario">Entre com seu usuário</p>
+        </div>
 
-        <div className="mt-6 flex flex-col gap-4">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-slate-700 dark:text-slate-300">Login</span>
+        <div className="flex flex-col gap-6 border-y border-linha py-6">
+          <label className="flex flex-col gap-2">
+            <span className="text-sm text-texto-secundario">Login</span>
             <input
               type="text"
               value={login}
@@ -60,36 +59,32 @@ export default function LoginPage() {
               autoComplete="username"
               autoFocus
               required
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-950"
+              className="border-b-2 border-tinta bg-transparent pb-2 text-lg text-tinta outline-none focus:border-ambar"
             />
           </label>
 
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-slate-700 dark:text-slate-300">Senha</span>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm text-texto-secundario">Senha</span>
             <input
               type="password"
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
               autoComplete="current-password"
               required
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-950"
+              className="border-b-2 border-tinta bg-transparent pb-2 text-lg text-tinta outline-none focus:border-ambar"
             />
           </label>
-
-          {erro && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-              {erro}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={carregando}
-            className="mt-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-50 dark:text-slate-900 dark:hover:bg-slate-200"
-          >
-            {carregando ? "Entrando…" : "Entrar"}
-          </button>
         </div>
+
+        {erro && <p className="text-sm text-ambar">{erro}</p>}
+
+        <button
+          type="submit"
+          disabled={carregando}
+          className="bg-tinta px-6 py-3 text-base font-medium text-papel transition-opacity disabled:opacity-40"
+        >
+          {carregando ? "Entrando…" : "Entrar"}
+        </button>
       </form>
     </main>
   );

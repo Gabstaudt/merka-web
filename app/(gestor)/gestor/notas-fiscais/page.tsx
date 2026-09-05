@@ -182,6 +182,12 @@ function NotaFiscalRow({ nota, onAlterada }: { nota: FiscalReceipt; onAlterada: 
   const [cancelando, setCancelando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
+  const [mostrarEnviar, setMostrarEnviar] = useState(false);
+  const [emailDestino, setEmailDestino] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
+  const [enviado, setEnviado] = useState(false);
+
   async function confirmarCancelamento() {
     if (justificativa.trim().length < 15 || cancelando) return;
     setCancelando(true);
@@ -203,6 +209,27 @@ function NotaFiscalRow({ nota, onAlterada }: { nota: FiscalReceipt; onAlterada: 
     }
   }
 
+  async function confirmarEnvio() {
+    if (emailDestino.trim() === "" || enviando) return;
+    setEnviando(true);
+    setErroEnvio(null);
+
+    const res = await fetch(`/api/pagamentos/${encodeURIComponent(nota.PaymentID)}/enviar-nota`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ canal: "email", destino: emailDestino.trim() }),
+    });
+
+    setEnviando(false);
+    if (res.ok) {
+      setEnviado(true);
+      setMostrarEnviar(false);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setErroEnvio(data.erro ?? "não foi possível enviar o e-mail");
+    }
+  }
+
   return (
     <li className="border-t border-linha py-4 first:border-t-0">
       <div className="flex items-start justify-between gap-4">
@@ -215,18 +242,59 @@ function NotaFiscalRow({ nota, onAlterada }: { nota: FiscalReceipt; onAlterada: 
             {nota.Emitida && <span> · emitida em {formatarDataHora(nota.EmitidaEm)}</span>}
             {nota.Cancelada && <span className="text-ambar"> · cancelada em {formatarDataHora(nota.CanceladaEm)}</span>}
             {!nota.Emitida && nota.MotivoFalha && <span> · {nota.MotivoFalha}</span>}
+            {enviado && <span className="text-ambar"> · reenviada por e-mail</span>}
           </p>
         </div>
-        {nota.Emitida && !nota.Cancelada && (
-          <button
-            type="button"
-            onClick={() => setMostrarCancelar((v) => !v)}
-            className="shrink-0 text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
-          >
-            Cancelar nota
-          </button>
-        )}
+        <div className="flex shrink-0 gap-4">
+          {nota.Emitida && (
+            <button
+              type="button"
+              onClick={() => setMostrarEnviar((v) => !v)}
+              className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+            >
+              Enviar por e-mail
+            </button>
+          )}
+          {nota.Emitida && !nota.Cancelada && (
+            <button
+              type="button"
+              onClick={() => setMostrarCancelar((v) => !v)}
+              className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+            >
+              Cancelar nota
+            </button>
+          )}
+        </div>
       </div>
+
+      {mostrarEnviar && (
+        <div className="mt-3 flex flex-col gap-3 border-l-2 border-ambar pl-4">
+          <label className="flex flex-col gap-1">
+            <span className="text-sm text-texto-secundario">E-mail de destino</span>
+            <input
+              type="email"
+              value={emailDestino}
+              onChange={(e) => setEmailDestino(e.target.value)}
+              autoFocus
+              className="border-b border-linha bg-transparent py-1 text-sm text-tinta outline-none focus:border-ambar"
+            />
+          </label>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={confirmarEnvio}
+              disabled={emailDestino.trim() === "" || enviando}
+              className="bg-tinta px-4 py-2 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
+            >
+              {enviando ? "Enviando…" : "Enviar"}
+            </button>
+            <button type="button" onClick={() => setMostrarEnviar(false)} className="text-sm text-texto-secundario hover:text-tinta">
+              Cancelar
+            </button>
+          </div>
+          {erroEnvio && <p className="text-sm text-ambar">{erroEnvio}</p>}
+        </div>
+      )}
 
       {mostrarCancelar && (
         <div className="mt-3 flex flex-col gap-3 border-l-2 border-ambar pl-4">

@@ -99,8 +99,6 @@ export default function CaixaPage() {
   const [imprimirCupomAoFechar, setImprimirCupomAoFechar] = useState(true);
   const [enviarEmail, setEnviarEmail] = useState(false);
   const [emailDestino, setEmailDestino] = useState("");
-  const [enviarWhatsapp, setEnviarWhatsapp] = useState(false);
-  const [whatsappDestino, setWhatsappDestino] = useState("");
 
   // CPF/CNPJ é sempre opcional — vale tanto pro cupom simples (NFC-e)
   // quanto pra nota fiscal completa, não é exclusivo de nenhum dos dois.
@@ -275,9 +273,25 @@ export default function CaixaPage() {
         await imprimirCupomFechamento(comandas, pagamentos, total);
       }
 
+      const paymentIds = (data.payment_ids as string[]) ?? [];
+
+      // Best-effort: a emissão fiscal roda em background (ver
+      // merka-api/CLAUDE.md — ExecutarEmBackground), então a nota pode
+      // ainda não existir no instante exato do fechamento. Se falhar por
+      // esse motivo, o operador tem o caminho confiável (por nota, já
+      // emitida) no ícone "Notas fiscais emitidas" — por isso o erro
+      // aqui não trava nem aparece pro operador, só não confirma sucesso.
+      if (enviarEmail && emailDestino.trim() !== "" && paymentIds.length > 0) {
+        fetch(`/api/pagamentos/${encodeURIComponent(paymentIds[0])}/enviar-nota`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ canal: "email", destino: emailDestino.trim() }),
+        }).catch(() => {});
+      }
+
       setResultado({
         tipo: "sucesso",
-        paymentIds: (data.payment_ids as string[]) ?? [],
+        paymentIds,
         comandas: comandas.map((c) => c.codigo),
         total,
         chave: proximaChave(),
@@ -287,8 +301,6 @@ export default function CaixaPage() {
       setDescontoGlobalAplicado(0);
       setEnviarEmail(false);
       setEmailDestino("");
-      setEnviarWhatsapp(false);
-      setWhatsappDestino("");
       setDocumentoCliente("");
       setSolicitarNotaCompleta(false);
       setImprimirA4(false);
@@ -552,32 +564,21 @@ export default function CaixaPage() {
               className="border-b border-linha bg-transparent py-2 text-sm text-tinta outline-none placeholder:text-texto-secundario/50 focus:border-ambar"
             />
           )}
-
-          <label className="flex items-center justify-between gap-3">
-            <span className="text-sm text-texto-secundario">Enviar cupom por WhatsApp</span>
-            <input
-              type="checkbox"
-              checked={enviarWhatsapp}
-              onChange={(e) => setEnviarWhatsapp(e.target.checked)}
-              className="h-4 w-4 accent-tinta"
-            />
-          </label>
-          {enviarWhatsapp && (
-            <input
-              type="tel"
-              value={whatsappDestino}
-              onChange={(e) => setWhatsappDestino(e.target.value)}
-              placeholder="(00) 00000-0000"
-              className="border-b border-linha bg-transparent py-2 text-sm text-tinta outline-none placeholder:text-texto-secundario/50 focus:border-ambar"
-            />
-          )}
-
-          {(enviarEmail || enviarWhatsapp) && (
+          {enviarEmail && temNotaAutomatica && (
             <p className="text-sm text-texto-secundario">
-              TODO: envio por e-mail/WhatsApp ainda não tem endpoint no backend — o destino fica
-              só aqui até essa entrega existir (ver CLAUDE.md).
+              Enviado assim que a nota for confirmada — se a SEFAZ ainda não respondeu no instante do
+              fechamento, use &quot;Enviar por e-mail&quot; na nota, em Notas fiscais emitidas.
             </p>
           )}
+
+          <label className="flex items-center justify-between gap-3 opacity-50">
+            <span className="text-sm text-texto-secundario">Enviar cupom por WhatsApp</span>
+            <input type="checkbox" disabled className="h-4 w-4 accent-tinta" />
+          </label>
+          <p className="text-sm text-texto-secundario">
+            WhatsApp ainda não tem integração com nenhum provedor externo (ex: Twilio, Meta Business
+            API) — o backend recusa essa opção explicitamente em vez de fingir que enviou.
+          </p>
         </div>
 
         <div className="mt-6 flex flex-col gap-4 border-t border-linha pt-6">
@@ -1111,6 +1112,12 @@ function NotaFiscalRow({ nota }: { nota: FiscalReceipt }) {
   const [erro, setErro] = useState<string | null>(null);
   const [cancelada, setCancelada] = useState(nota.Cancelada);
 
+  const [mostrarEnviar, setMostrarEnviar] = useState(false);
+  const [emailDestino, setEmailDestino] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
+  const [enviado, setEnviado] = useState(false);
+
   async function confirmarCancelamento() {
     if (justificativa.trim().length < 15 || cancelando) return;
     setCancelando(true);
@@ -1132,6 +1139,27 @@ function NotaFiscalRow({ nota }: { nota: FiscalReceipt }) {
     }
   }
 
+  async function confirmarEnvio() {
+    if (emailDestino.trim() === "" || enviando) return;
+    setEnviando(true);
+    setErroEnvio(null);
+
+    const res = await fetch(`/api/pagamentos/${encodeURIComponent(nota.PaymentID)}/enviar-nota`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ canal: "email", destino: emailDestino.trim() }),
+    });
+
+    setEnviando(false);
+    if (res.ok) {
+      setEnviado(true);
+      setMostrarEnviar(false);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setErroEnvio(data.erro ?? "não foi possível enviar o e-mail");
+    }
+  }
+
   return (
     <li className="border-t border-linha py-4 first:border-t-0">
       <div className="flex items-start justify-between gap-4">
@@ -1143,18 +1171,59 @@ function NotaFiscalRow({ nota }: { nota: FiscalReceipt }) {
             emitida em {formatarDataHora(nota.EmitidaEm)}
             {cancelada && <span className="text-ambar"> · cancelada em {formatarDataHora(nota.CanceladaEm)}</span>}
             {!nota.Emitida && nota.MotivoFalha && <span> · {nota.MotivoFalha}</span>}
+            {enviado && <span className="text-ambar"> · reenviada por e-mail</span>}
           </p>
         </div>
-        {nota.Emitida && !cancelada && (
-          <button
-            type="button"
-            onClick={() => setMostrarCancelar((v) => !v)}
-            className="shrink-0 text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
-          >
-            Cancelar nota
-          </button>
-        )}
+        <div className="flex shrink-0 gap-4">
+          {nota.Emitida && (
+            <button
+              type="button"
+              onClick={() => setMostrarEnviar((v) => !v)}
+              className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+            >
+              Enviar por e-mail
+            </button>
+          )}
+          {nota.Emitida && !cancelada && (
+            <button
+              type="button"
+              onClick={() => setMostrarCancelar((v) => !v)}
+              className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+            >
+              Cancelar nota
+            </button>
+          )}
+        </div>
       </div>
+
+      {mostrarEnviar && (
+        <div className="mt-3 flex flex-col gap-3 border-l-2 border-ambar pl-4">
+          <label className="flex flex-col gap-1">
+            <span className="text-sm text-texto-secundario">E-mail de destino</span>
+            <input
+              type="email"
+              value={emailDestino}
+              onChange={(e) => setEmailDestino(e.target.value)}
+              autoFocus
+              className="border-b border-linha bg-transparent py-1 text-sm text-tinta outline-none focus:border-ambar"
+            />
+          </label>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={confirmarEnvio}
+              disabled={emailDestino.trim() === "" || enviando}
+              className="bg-tinta px-4 py-2 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
+            >
+              {enviando ? "Enviando…" : "Enviar"}
+            </button>
+            <button type="button" onClick={() => setMostrarEnviar(false)} className="text-sm text-texto-secundario hover:text-tinta">
+              Cancelar
+            </button>
+          </div>
+          {erroEnvio && <p className="text-sm text-ambar">{erroEnvio}</p>}
+        </div>
+      )}
 
       {mostrarCancelar && (
         <div className="mt-3 flex flex-col gap-3 border-l-2 border-ambar pl-4">
