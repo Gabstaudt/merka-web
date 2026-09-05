@@ -1,8 +1,17 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 type Comanda = { ID: string; Status: string; CodigoFisico: string; TableID: string | null };
+
+type ComandaVisaoGeral = {
+  id: string;
+  codigo_fisico: string;
+  status: string;
+  mesa: string | null;
+  quantidade_itens: number;
+  valor_total: number;
+};
 
 function statusLabel(status: string) {
   if (status === "em_uso") return "em uso";
@@ -10,6 +19,150 @@ function statusLabel(status: string) {
   if (status === "paga") return "paga";
   if (status === "cancelada") return "cancelada";
   return status;
+}
+
+function formatarMoeda(valor: number) {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// TodasComandasSection: visão geral de TODAS as comandas do tenant, com o
+// que está lançado em cada uma — pra conferência rápida (ex: "essa
+// comanda tem algo pendente?") sem precisar saber o código de antemão.
+// Quem tem a permissão "criar_comanda" (Admin Super/Gestor) também
+// cadastra uma comanda física nova aqui — o código já existe no
+// cartão/pulseira confeccionado, só falta entrar no banco.
+function TodasComandasSection() {
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [comandas, setComandas] = useState<ComandaVisaoGeral[]>([]);
+  const [podeCriar, setPodeCriar] = useState(false);
+
+  function carregar() {
+    setCarregando(true);
+    setErro(null);
+    fetch("/api/comandas/todas")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setErro(data.erro ?? "não foi possível carregar as comandas");
+          return;
+        }
+        setComandas(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setErro("Sem conexão com o servidor. Confira a rede e tente de novo."))
+      .finally(() => setCarregando(false));
+  }
+
+  useEffect(() => {
+    Promise.resolve().then(() => carregar());
+    fetch("/api/me")
+      .then((res) => res.json())
+      .then((data) => setPodeCriar(Array.isArray(data.permissoes) && data.permissoes.includes("criar_comanda")))
+      .catch(() => setPodeCriar(false));
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="font-display text-2xl text-tinta">Todas as comandas</h1>
+        <p className="mt-1 text-sm text-texto-secundario">
+          Status e o que está lançado em cada comanda do tenant, de uma vez só.
+        </p>
+      </div>
+
+      {podeCriar && <CriarComandaForm onCriada={carregar} />}
+
+      {carregando && <p className="text-sm text-texto-secundario">Carregando…</p>}
+      {erro && <p className="text-sm text-ambar">{erro}</p>}
+      {!carregando && !erro && comandas.length === 0 && (
+        <p className="text-sm text-texto-secundario">Nenhuma comanda cadastrada.</p>
+      )}
+      {!carregando && !erro && comandas.length > 0 && (
+        <ul className="flex flex-col border-y border-linha">
+          {comandas.map((c) => (
+            <li key={c.id} className="flex items-center justify-between gap-4 border-t border-linha py-3 first:border-t-0">
+              <div className="flex items-baseline gap-3">
+                <span className="font-mono text-base text-tinta">{c.codigo_fisico}</span>
+                <span className="text-sm text-texto-secundario">
+                  {statusLabel(c.status)}
+                  {c.mesa && ` · ${c.mesa}`}
+                </span>
+              </div>
+              <span className="text-sm text-texto-secundario">
+                {c.quantidade_itens > 0
+                  ? `${c.quantidade_itens} ${c.quantidade_itens > 1 ? "itens" : "item"} · ${formatarMoeda(c.valor_total)}`
+                  : "sem itens lançados"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// CriarComandaForm: cadastra o código físico de uma comanda recém-
+// confeccionada — nasce sempre "disponivel", pronta pro Porteiro
+// entregar. Não é "gerar numeração": o código já existe no cartão/
+// pulseira, aqui só registra no sistema.
+function CriarComandaForm({ onCriada }: { onCriada: () => void }) {
+  const [codigo, setCodigo] = useState("");
+  const [criando, setCriando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function criar(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const codigoAtual = codigo.trim();
+    if (codigoAtual === "" || criando) return;
+
+    setCriando(true);
+    setErro(null);
+
+    try {
+      const res = await fetch("/api/comandas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codigo_fisico: codigoAtual }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setErro(data.erro ?? "não foi possível cadastrar a comanda");
+        return;
+      }
+
+      setCodigo("");
+      onCriada();
+    } catch {
+      setErro("Sem conexão com o servidor. Confira a rede e tente de novo.");
+    } finally {
+      setCriando(false);
+    }
+  }
+
+  return (
+    <form onSubmit={criar} className="flex flex-col gap-2 border-b border-linha pb-4">
+      <span className="text-sm text-texto-secundario">Cadastrar comanda física nova</span>
+      <div className="flex gap-3">
+        <input
+          type="text"
+          value={codigo}
+          onChange={(e) => setCodigo(e.target.value)}
+          placeholder="Código físico (ex: C123)"
+          autoComplete="off"
+          className="flex-1 border-b-2 border-tinta bg-transparent pb-2 font-mono text-lg text-tinta outline-none placeholder:text-texto-secundario/50 focus:border-ambar sm:flex-none sm:w-64"
+        />
+        <button
+          type="submit"
+          disabled={codigo.trim() === "" || criando}
+          className="bg-tinta px-5 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
+        >
+          {criando ? "Cadastrando…" : "Cadastrar"}
+        </button>
+      </div>
+      {erro && <p className="text-sm text-ambar">{erro}</p>}
+    </form>
+  );
 }
 
 // Cancelamento total de comanda (US-15) — restrito a Gestor/Admin Super.
@@ -86,14 +239,17 @@ export default function ComandasPage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="font-display text-2xl text-tinta">Cancelamento total de comanda</h1>
-        <p className="mt-1 text-sm text-texto-secundario">
-          Zera todos os itens/pesos lançados e libera a comanda de volta pro estoque. Ação restrita e irreversível —
-          sempre com motivo.
-        </p>
-      </div>
+    <div className="flex flex-col gap-12">
+      <TodasComandasSection />
+
+      <div className="flex flex-col gap-8 border-t border-linha pt-10">
+        <div>
+          <h2 className="font-display text-2xl text-tinta">Cancelamento total de comanda</h2>
+          <p className="mt-1 text-sm text-texto-secundario">
+            Zera todos os itens/pesos lançados e libera a comanda de volta pro estoque. Ação restrita e irreversível —
+            sempre com motivo.
+          </p>
+        </div>
 
       {sucesso && (
         <div className="animate-feedback-in border-l-2 border-ambar pl-6">
@@ -161,6 +317,7 @@ export default function ComandasPage() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

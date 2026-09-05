@@ -92,11 +92,6 @@ export default function CaixaPage() {
   const [valorEditadoManualmente, setValorEditadoManualmente] = useState(false);
   const [pagamentos, setPagamentos] = useState<PagamentoParcial[]>([]);
 
-  // TODO(config-tenant): valor padrão devia vir de uma configuração por
-  // tenant (ex: tenants.imprimir_cupom_padrao) — não existe esse campo
-  // ainda no backend, então por enquanto o padrão é fixo (true) e some
-  // que o operador ajusta manualmente quando quiser.
-  const [imprimirCupomAoFechar, setImprimirCupomAoFechar] = useState(true);
   const [enviarEmail, setEnviarEmail] = useState(false);
   const [emailDestino, setEmailDestino] = useState("");
 
@@ -112,7 +107,18 @@ export default function CaixaPage() {
   const [confirmando, setConfirmando] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
 
+  // Pergunta de impressão é feita DEPOIS do pagamento confirmado (fluxo
+  // "Deseja imprimir o DANFE?"), não uma escolha travada antes de fechar —
+  // o caixa só decide isso quando a venda já está de fato concluída.
+  const [perguntaImpressao, setPerguntaImpressao] = useState<{
+    comandas: ComandaFechamento[];
+    pagamentos: PagamentoParcial[];
+    total: number;
+  } | null>(null);
+  const [imprimindoAposFechar, setImprimindoAposFechar] = useState(false);
+
   const [mostrarNotasEmitidas, setMostrarNotasEmitidas] = useState(false);
+  const [mostrarTodasComandas, setMostrarTodasComandas] = useState(false);
 
   // Contador local em vez de Date.now(): só serve pra dar uma key nova ao
   // painel de resultado (força a animação de entrada a rodar de novo a
@@ -269,10 +275,6 @@ export default function CaixaPage() {
         return;
       }
 
-      if (imprimirCupomAoFechar) {
-        await imprimirCupomFechamento(comandas, pagamentos, total);
-      }
-
       const paymentIds = (data.payment_ids as string[]) ?? [];
 
       // Best-effort: a emissão fiscal roda em background (ver
@@ -296,6 +298,7 @@ export default function CaixaPage() {
         total,
         chave: proximaChave(),
       });
+      setPerguntaImpressao({ comandas, pagamentos, total });
       setComandas([]);
       setPagamentos([]);
       setDescontoGlobalAplicado(0);
@@ -333,6 +336,19 @@ export default function CaixaPage() {
         <div className="flex items-center gap-4">
           <button
             type="button"
+            onClick={() => setMostrarTodasComandas(true)}
+            title="Todas as comandas"
+            aria-label="Todas as comandas"
+            className="text-texto-secundario transition-colors hover:text-tinta"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="3" y="4" width="18" height="17" rx="1" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M8 13h3M8 16.5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
             onClick={() => setMostrarNotasEmitidas(true)}
             title="Notas fiscais emitidas"
             aria-label="Notas fiscais emitidas"
@@ -352,6 +368,7 @@ export default function CaixaPage() {
         </div>
       </header>
 
+      {mostrarTodasComandas && <TodasComandasPanel onFechar={() => setMostrarTodasComandas(false)} />}
       {mostrarNotasEmitidas && <NotasEmitidasPanel onFechar={() => setMostrarNotasEmitidas(false)} />}
 
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
@@ -370,6 +387,36 @@ export default function CaixaPage() {
                   comanda{resultado.comandas.length > 1 ? "s" : ""} {resultado.comandas.join(", ")} ·{" "}
                   {resultado.paymentIds.length} lançamento{resultado.paymentIds.length > 1 ? "s" : ""} de pagamento
                 </p>
+
+                {perguntaImpressao && (
+                  <div className="mt-4 flex items-center gap-4">
+                    <span className="text-sm text-texto-secundario">Deseja imprimir o cupom fiscal?</span>
+                    <button
+                      type="button"
+                      disabled={imprimindoAposFechar}
+                      onClick={async () => {
+                        setImprimindoAposFechar(true);
+                        await imprimirCupomFechamento(
+                          perguntaImpressao.comandas,
+                          perguntaImpressao.pagamentos,
+                          perguntaImpressao.total
+                        );
+                        setImprimindoAposFechar(false);
+                        setPerguntaImpressao(null);
+                      }}
+                      className="bg-tinta px-4 py-2 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
+                    >
+                      {imprimindoAposFechar ? "Imprimindo…" : "Imprimir"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPerguntaImpressao(null)}
+                      className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+                    >
+                      Não imprimir
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </section>
@@ -534,16 +581,6 @@ export default function CaixaPage() {
             {documentoDigitos.length > 0 && !documentoValido && (
               <span className="text-sm text-ambar">CPF tem 11 dígitos, CNPJ tem 14 — confira o número.</span>
             )}
-          </label>
-
-          <label className="flex items-center justify-between gap-3">
-            <span className="text-sm text-texto-secundario">Imprimir cupom ao fechar?</span>
-            <input
-              type="checkbox"
-              checked={imprimirCupomAoFechar}
-              onChange={(e) => setImprimirCupomAoFechar(e.target.checked)}
-              className="h-4 w-4 accent-tinta"
-            />
           </label>
 
           <label className="flex items-center justify-between gap-3">
@@ -945,6 +982,87 @@ function formatarDataHora(iso: string | null) {
   return new Date(iso).toLocaleString("pt-BR");
 }
 
+type ComandaVisaoGeral = {
+  id: string;
+  codigo_fisico: string;
+  status: string;
+  mesa: string | null;
+  quantidade_itens: number;
+  valor_total: number;
+};
+
+function statusComandaLabel(status: string) {
+  if (status === "em_uso") return "em uso";
+  if (status === "disponivel") return "disponível";
+  if (status === "paga") return "paga";
+  if (status === "cancelada") return "cancelada";
+  return status;
+}
+
+// TodasComandasPanel: ícone no header abre a visão geral de TODAS as
+// comandas do tenant (qualquer status), com o que está lançado em cada
+// uma — pra conferência rápida sem precisar saber o código de antemão
+// (permissão ver_comandas). Mesma estrutura de overlay do
+// NotasEmitidasPanel logo abaixo.
+function TodasComandasPanel({ onFechar }: { onFechar: () => void }) {
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [comandas, setComandas] = useState<ComandaVisaoGeral[]>([]);
+
+  useEffect(() => {
+    fetch("/api/comandas/todas")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setErro(data.erro ?? "não foi possível carregar as comandas");
+          return;
+        }
+        setComandas(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setErro("Sem conexão com o servidor. Confira a rede e tente de novo."))
+      .finally(() => setCarregando(false));
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-10 flex flex-col bg-papel">
+      <header className="flex items-center justify-between border-b border-linha px-6 py-4">
+        <button type="button" onClick={onFechar} className="text-sm text-texto-secundario hover:text-tinta">
+          ← Voltar
+        </button>
+        <span className="text-sm text-texto-secundario">Todas as comandas</span>
+      </header>
+
+      <main className="mx-auto w-full max-w-2xl flex-1 overflow-y-auto px-6 py-8">
+        {carregando && <p className="text-sm text-texto-secundario">Carregando…</p>}
+        {erro && <p className="text-sm text-ambar">{erro}</p>}
+        {!carregando && !erro && comandas.length === 0 && (
+          <p className="text-sm text-texto-secundario">Nenhuma comanda cadastrada.</p>
+        )}
+        {!carregando && !erro && comandas.length > 0 && (
+          <ul className="flex flex-col">
+            {comandas.map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-4 border-t border-linha py-3 first:border-t-0">
+                <div className="flex items-baseline gap-3">
+                  <span className="font-mono text-base text-tinta">{c.codigo_fisico}</span>
+                  <span className="text-sm text-texto-secundario">
+                    {statusComandaLabel(c.status)}
+                    {c.mesa && ` · ${c.mesa}`}
+                  </span>
+                </div>
+                <span className="text-sm text-texto-secundario">
+                  {c.quantidade_itens > 0
+                    ? `${c.quantidade_itens} ${c.quantidade_itens > 1 ? "itens" : "item"} · ${formatarMoeda(c.valor_total)}`
+                    : "sem itens lançados"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </main>
+    </div>
+  );
+}
+
 // NotasEmitidasPanel: ícone no header abre uma lista de TODAS as notas
 // fiscais já emitidas (não só de uma comanda específica) — pra conferência
 // rápida, sem precisar saber o código de nenhuma comanda de antemão.
@@ -1269,6 +1387,7 @@ function NotaFiscalRow({ nota }: { nota: FiscalReceipt }) {
 function TestesImpressora() {
   const [status, setStatus] = useState<"idle" | "verificando" | "disponivel" | "indisponivel">("idle");
   const [aviso, setAviso] = useState<string | null>(null);
+  const [imprimindo, setImprimindo] = useState(false);
 
   async function testar() {
     setStatus("verificando");
@@ -1282,18 +1401,47 @@ function TestesImpressora() {
     setStatus("disponivel");
   }
 
+  async function imprimirTeste() {
+    setImprimindo(true);
+    setAviso(null);
+    const resultado = await imprimirCupom([
+      "MERKA — CUPOM DE TESTE",
+      "--------------------------------",
+      "Se isto saiu na impressora,",
+      "a integração com o QZ Tray está OK.",
+      "--------------------------------",
+    ]);
+    setImprimindo(false);
+    if (!resultado.ok) {
+      setStatus("indisponivel");
+      setAviso(resultado.motivo);
+      return;
+    }
+    setStatus("disponivel");
+  }
+
   return (
-    <div className="mt-10 border-t border-linha pt-6">
-      <button
-        type="button"
-        onClick={testar}
-        disabled={status === "verificando"}
-        className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
-      >
-        {status === "verificando" ? "Verificando impressora…" : "Testar conexão com a impressora"}
-      </button>
-      {status === "disponivel" && <p className="mt-2 text-sm text-texto-secundario">QZ Tray conectado.</p>}
-      {status === "indisponivel" && <p className="mt-2 text-sm text-ambar">{aviso}</p>}
+    <div className="mt-10 flex flex-col gap-2 border-t border-linha pt-6">
+      <div className="flex flex-wrap gap-4">
+        <button
+          type="button"
+          onClick={testar}
+          disabled={status === "verificando"}
+          className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+        >
+          {status === "verificando" ? "Verificando impressora…" : "Testar conexão com a impressora"}
+        </button>
+        <button
+          type="button"
+          onClick={imprimirTeste}
+          disabled={imprimindo}
+          className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta"
+        >
+          {imprimindo ? "Imprimindo…" : "Imprimir cupom de teste"}
+        </button>
+      </div>
+      {status === "disponivel" && <p className="text-sm text-texto-secundario">QZ Tray conectado.</p>}
+      {status === "indisponivel" && <p className="text-sm text-ambar">{aviso}</p>}
     </div>
   );
 }

@@ -511,6 +511,46 @@ raramente olha só uma tela por vez.
     estiver); motivo sempre obrigatório. Usa `POST
     /comandas/:id/cancelar`, que já existia.
 
+  **Visão geral "Todas as comandas" (2026-09-05)**: não existia forma de
+  ver de uma vez o status/conteúdo de TODAS as comandas do tenant — só
+  buscar uma por vez pelo código. Adicionado:
+  - **Endpoint novo no backend**: `GET /comandas/todas` (nova permissão
+    `ver_comandas`, migration `0026_seed_permissao_ver_comandas.sql` —
+    concedida ao Admin Super do tenant de dev; Gestor/Caixa recebem
+    escolhendo-a no catálogo ao criar/editar perfil). Retorna todas as
+    comandas com código, status, mesa (se houver), quantidade de itens
+    ativos e valor total — uma query só (`ComandaRepository.ListarTodas`,
+    `internal/repository/postgres/comanda_repo.go`), sem N+1.
+  - **Frontend**: `TodasComandasSection` no topo de
+    `gestor/comandas/page.tsx` (Gestor/Admin Super, mesma aba de
+    cancelamento) + ícone novo no header do Caixa
+    (`app/(caixa)/caixa/page.tsx`, ao lado do de notas fiscais emitidas)
+    abrindo `TodasComandasPanel` em overlay — mesmo componente de dados,
+    UI adaptada a cada layout. Testado ao vivo nas duas telas com os
+    dados reais do ambiente de dev (C001/C501/C502/C777/C888).
+  **Cadastro de comanda física nova (2026-09-05)**: o usuário pediu pra
+  poder criar comandas pelo Admin Super/Gestor (a nota acima, "não existe
+  cadastro", virou desatualizada — implementado logo em seguida). Novo:
+  - **Backend**: nova permissão `criar_comanda` (migration
+    `0027_seed_permissao_criar_comanda.sql`, mesmo padrão de
+    `ver_comandas`/`0026`) + `POST /comandas` (`ComandaHandler.Criar`,
+    `usecase.CriarComanda`, `ComandaRepository.Criar` — sempre nasce
+    `disponivel`, sem mesa). Auditado via `audit.Executar`, igual a toda
+    outra escrita. `ErrCodigoComandaJaExiste` (409) na violação da UNIQUE
+    `(tenant_id, codigo_fisico)`.
+  - **Frontend**: formulário `CriarComandaForm` no topo de
+    `TodasComandasSection` (`gestor/comandas/page.tsx`) — só aparece pra
+    quem tem `criar_comanda` de verdade (checa `GET /api/me`, não só
+    "chegou nessa aba"), já que a aba em si é liberada por
+    `cancelar_comanda` (permissões diferentes, mesmo conjunto de perfis
+    hoje). Recarrega a lista ao cadastrar com sucesso.
+  - **O que continua igual**: cadastrar aqui só registra o código no
+    banco — não imprime nem gera o cartão/pulseira físico (isso é
+    responsabilidade de fora do sistema). O código em si pode ser
+    qualquer texto que o operador digitar, sem geração automática — quem
+    decide o valor de `codigo_fisico` ainda é a pessoa cadastrando, igual
+    ao padrão usado nas comandas de seed (C001, C777, etc.).
+
   Testado ao vivo: criei um usuário de verdade (apareceu na lista na
   hora), e cancelei a comanda C502 de verdade — voltou pro estoque
   (`status = disponivel`) e confirmei direto no banco.
