@@ -257,22 +257,22 @@ raramente olha só uma tela por vez.
   extras de teste (`Mesa 2`, `Mesa 3`) em
   `migrations/0021_seed_mesas_extra.sql`.
 
-- **Caixa** (`app/(caixa)/caixa/page.tsx`) — **em implementação por
-  etapas** (tela mais rica, validação a cada etapa). **ETAPA 1 pronta e
-  testada de verdade** (US-13/US-14): campo de código adiciona comandas ao
-  fechamento (resolve por `GET /api/comandas/:codigo`, busca o subtotal
-  ativo de cada uma via `GET /api/comandas/:id/itens`, mesmo endpoint da
-  tela do Garçom); total consolidado em âmbar; pagamento misto (N métodos,
-  cada um com seu valor, mostra "falta cobrir" até bater); toggle
-  "Imprimir cupom?" (local, `TODO(config-tenant)`: valor padrão deveria vir
-  de config por tenant, campo não existe no backend ainda); checkboxes de
-  e-mail/WhatsApp com campo de destino (**local apenas — não existe
-  endpoint de envio de cupom por canal ainda**, documentado como TODO
-  visível na própria tela). Confirmar chama `POST /api/pagamentos` de
-  verdade; se "Imprimir cupom" estiver ligado, tenta imprimir via QZ Tray
-  (`lib/qz.ts`, integração pré-existente, real). Testado ao vivo: fechamento
-  misto PIX+dinheiro bateu o total, comanda virou `paga` no banco, os dois
-  lançamentos de `payments` foram gravados.
+- **Caixa** (`app/(caixa)/caixa/page.tsx`) — **as 3 etapas planejadas
+  estão prontas e testadas de verdade**, mais uma rodada de ajustes de UX
+  pedidos depois de revisar a ETAPA 2 (ver lista no fim desta seção).
+
+  **ETAPA 1** (US-13/US-14): campo de código adiciona comandas ao
+  fechamento (resolve por `GET /api/comandas/:codigo`, busca os itens
+  ativos de cada uma via `GET /api/comandas/:id/itens`, mesmo endpoint da
+  tela do Garçom); pagamento misto (N métodos, cada um com seu valor,
+  mostra "falta cobrir" até bater); toggle "Imprimir cupom?" (local,
+  `TODO(config-tenant)`: valor padrão deveria vir de config por tenant,
+  campo não existe no backend ainda); checkboxes de e-mail/WhatsApp com
+  campo de destino (**local apenas — não existe endpoint de envio de
+  cupom por canal ainda**, documentado como TODO visível na própria
+  tela). Confirmar chama `POST /api/pagamentos` de verdade; se "Imprimir
+  cupom" estiver ligado, tenta imprimir via QZ Tray (`lib/qz.ts`,
+  integração pré-existente, real).
 
   Emissão de NFC-e para métodos de cartão/voucher é automática no backend
   e roda em background (`FecharPagamento.Executar`,
@@ -280,21 +280,26 @@ raramente olha só uma tela por vez.
   /pagamentos` não espera a SEFAZ, então a tela não afirma "nota emitida",
   só avisa que a emissão está a caminho quando aplicável.
 
-  **ETAPA 2 pronta e testada de verdade** (US-17 desconto; nota fiscal
-  completa parcial — ver gap abaixo). Cada comanda no fechamento ganhou
-  uma ação "Desconto" (painel inline: valor fixo ou percentual, motivo
-  obrigatório, prévia do valor abatido antes de confirmar) — chama `POST
-  /api/comandas/:id/desconto` de verdade; o valor riscado + novo subtotal
-  aparecem na lista, e o total consolidado já reflete o desconto.
-  "Solicitar nota fiscal completa" é um checkbox que abre campo de
-  CPF/CNPJ (validação leve de tamanho no front, dígito verificador real
-  no backend) + "Imprimir nota em A4" — **só o CPF/CNPJ está de fato
-  conectado** (vai em `documento` no `POST /pagamentos`, chega até a
-  emissão fiscal quando o método é cartão/débito/voucher); a distinção
+  **ETAPA 2** (US-17 desconto; nota fiscal completa parcial — ver gap
+  abaixo). Uma ação "Aplicar desconto" (valor fixo ou percentual, motivo
+  obrigatório, prévia do valor abatido antes de confirmar) chama `POST
+  /api/comandas/:id/desconto` de verdade. **Importante: desconto incide
+  sobre a soma total do fechamento, não sobre uma comanda isolada** (uma
+  correção pedida depois da primeira versão, que aplicava por comanda) —
+  como o endpoint só sabe aplicar a uma comanda específica, o valor em
+  reais é sempre calculado no front sobre o total consolidado e enviado
+  como `valor_fixo` (nunca deixa o backend recalcular um percentual em
+  cima de só uma comanda, o que daria errado com 2+ comandas somadas).
+  CPF/CNPJ do cliente é um campo sempre visível e sempre opcional (não é
+  exclusivo de "nota fiscal completa" — outra correção pedida: o cupom
+  simples também pode ter CPF/CNPJ) — vai em `documento` no `POST
+  /pagamentos`, chega até a emissão fiscal quando o método é
+  cartão/débito/voucher. "Solicitar nota fiscal completa" continua um
+  checkbox à parte, só com "Imprimir nota em A4" dentro — a distinção
   NFC-e vs nota fiscal completa e a impressão A4/e-mail/WhatsApp da nota
   **não existem no backend** — só NFC-e modelo 65 está implementado (ver
-  CLAUDE.md do merka-api) — e isso está documentado como TODO visível na
-  própria tela, mesmo padrão da ETAPA 1.
+  CLAUDE.md do merka-api) — documentado como TODO visível na própria
+  tela.
 
   **Dois bugs de correção monetária real, achados e corrigidos durante
   esta etapa** (não eram só gap de escopo — o dinheiro cobrado do cliente
@@ -315,15 +320,115 @@ raramente olha só uma tela por vez.
      filtrando `discounts.aplicado_em >= comandas.aberta_em` — só conta
      desconto do ciclo de uso atual (`internal/repository/postgres/discount_repo.go`).
 
-  **Gap relacionado, encontrado mas NÃO corrigido nesta etapa** (mesma
-  categoria de bug, escopo maior — afeta Balança/Garçom/Caixa já
-  aprovados): `order_items` tem o mesmo problema de reuso que
-  `discounts` tinha — nenhuma query de soma de total
-  (`SomarTotalAtivo`/`ListarAtivosPorComandas`/`ListarPorComanda`) filtra
-  por `aberta_em`. Hoje, um item lançado num ciclo anterior da mesma
-  comanda física continua contando no total de um cliente completamente
-  diferente depois que a comanda volta a ficar `em_uso`. Requer decisão
-  do usuário sobre escopo antes de mexer, porque toca telas já validadas.
+  **Gap relacionado, encontrado E CORRIGIDO logo em seguida** (mesma
+  categoria de bug do desconto, escopo maior — tocava Balança/Garçom/
+  Caixa já aprovados, corrigido a pedido explícito do usuário):
+  `order_items` tinha o mesmo problema de reuso que `discounts` tinha —
+  nenhuma query de soma de total (`SomarTotalAtivo`,
+  `ListarAtivosPorComandas`, `ListarPorComanda`) filtrava por
+  `comandas.aberta_em`. Um item lançado num ciclo anterior da mesma
+  comanda física continuava contando no total de um cliente
+  completamente diferente depois que a comanda voltava a ficar `em_uso`.
+  Corrigido em `internal/repository/postgres/order_item_repo.go` (mesmo
+  padrão do fix de `discounts`: `JOIN comandas c ... AND
+  oi.lancado_em >= c.aberta_em`) — confirmado ao vivo via curl: um item de
+  R$68,40 de um ciclo anterior sumiu do `GET /comandas/:id/itens` do ciclo
+  novo, e o backend passou a rejeitar o fechamento pelo valor antigo,
+  aceitando só o valor correto do ciclo atual.
+
+  **ETAPA 3** (US-22, cancelamento de nota): seção própria "Cancelar
+  nota fiscal já emitida", separada do fluxo de fechamento (é uma
+  correção sobre algo que já aconteceu, não parte de fechar um pagamento
+  novo). Busca por código da comanda — endpoint novo `GET
+  /comandas/:id/notas-fiscais` (`internal/handler/payment_handler.go`,
+  usecase `LocalizarNotasPorComanda`, repo
+  `FiscalReceiptRepository.BuscarPorComanda` via `payment_comandas`, não
+  existia antes) lista todas as notas ligadas à comanda (uma comanda pode
+  ter mais de um payment histórico). Cada nota emitida e ainda não
+  cancelada ganha ação "Cancelar nota" (justificativa 15–255 caracteres,
+  exigida pela SEFAZ) → `POST /api/pagamentos/:id/cancelar-nota`. Erros
+  específicos do backend (nota não emitida, já cancelada, prazo expirado)
+  aparecem direto na tela, nunca um genérico. Testado ao vivo: localizou
+  as 2 notas reais de C001 no ambiente de dev (uma com falha de emissão
+  mostrando o motivo, uma emitida de verdade nº 500209) e tentou cancelar
+  — o backend recusou com a mensagem específica correta porque esse
+  registro de dev não tem protocolo de autorização gravado (dado de teste
+  antigo incompleto, não um bug: confirma que a tela repassa o erro real
+  em vez de fingir sucesso).
+
+  **Ajustes pedidos numa segunda rodada, depois de validar a ETAPA 2**
+  (todos implementados e testados ao vivo):
+  1. Cada comanda no fechamento mostra a lista completa dos itens
+     lançados nela (nome, peso/unidade, valor), não só um subtotal — é
+     dinheiro real sendo conferido, o caixa precisa ver o detalhamento.
+  2. O campo de valor da forma de pagamento já nasce preenchido com o
+     total (ou o que falta cobrir) — só precisa digitar algo diferente
+     pra dividir entre métodos; é um valor derivado por render (não um
+     efeito), some do "piloto automático" assim que o operador edita à
+     mão, volta a acompanhar o total quando um pagamento é
+     adicionado/removido.
+  3. Desconto passou a ser sobre o total do fechamento (ver ETAPA 2
+     acima).
+  4. Caixa também lança item na comanda (US-11, mesma ação que o
+     Garçom tem), reusando `POST /api/comandas/:id/itens`.
+
+  **Correção depois de testar o item 4 ao vivo**: a primeira versão era
+  uma busca por nome com clique — o usuário pediu explicitamente algo
+  "muito mais prático": digitar o código do item (ex: "17" pra Água
+  Mineral) e apertar Enter, sem nenhum passo a mais. Isso exigiu um
+  campo novo no catálogo que não existia — `products.codigo_curto`
+  (migration `0023_products_codigo_curto.sql`, único por tenant quando
+  preenchido, opcional). O painel de "Adicionar item" da Caixa virou um
+  único campo: Enter lança direto se o texto bate um código OU um nome
+  único; nomes ambíguos ainda mostram uma lista curta pra um clique. O
+  painel **não fecha** depois de lançar — o Caixa costuma bipar vários
+  itens em sequência (código + Enter, código + Enter...), igual um
+  leitor de código de barras real, e fechar a cada um quebraria esse
+  ritmo. Testado ao vivo: "17" + Enter lançou Água Mineral na hora,
+  repetir "17" + Enter lançou uma segunda unidade sem reabrir nada.
+  Produtos de seed de dev ganharam código (`5` Buffet por Peso, `10`
+  Refrigerante Lata, `17` Água Mineral) só pra dar exemplos reais de
+  teste — cadastro de produto novo (US-21) ainda não expõe esse campo na
+  tela (só o backend aceita), fica pra quando essa tela for revisitada.
+
+  **Navegação por teclado na lista de nomes** (pedida depois de testar o
+  código): quando a busca por nome acha mais de um produto, ↓/↑ percorre
+  a lista (destaque visual acompanha) e Enter confirma o item destacado —
+  sem precisar soltar o teclado pra clicar com o mouse. O código do item
+  também passou a aparecer ao lado do nome, tanto na lista de busca
+  quanto na lista de itens já lançados na comanda (ex: "11 · Refrigerante
+  Litro") — ajuda o caixa a ir decorando os códigos com o uso. Testado ao
+  vivo: "re" → duas opções → ↓ até a segunda → Enter lançou o item
+  destacado, não o primeiro da lista.
+
+  **Bug corrigido logo depois**: digitar o nome completo de um produto
+  (restando só 1 resultado) escondia a lista inteira — a condição de
+  exibição exigia mais de 1 resultado, então nada aparecia e parecia que
+  a busca "não achava nada" mesmo com o item existindo. Corrigido pra
+  mostrar a lista com 1 resultado ou mais, sempre com o primeiro item
+  pré-destacado — Enter direto já lança, com ou sem usar as setas.
+
+  **Ícone "Notas fiscais emitidas" no header** (pedido depois): abre um
+  painel cheio de tela listando TODAS as notas fiscais já emitidas
+  (`GET /api/caixa/notas-fiscais?limit=50`, mais recente primeiro), não
+  só as de uma comanda específica — cada linha reaproveita o mesmo
+  componente de linha + ação "Cancelar nota" já usado na busca por
+  comanda (US-22). Endpoint novo no backend: `GET /caixa/notas-fiscais`
+  (`internal/handler/report_handler.go`) é um **alias** de `GET
+  /notas-fiscais` (que já existia pro Gestor, US-05) só que gated pela
+  permissão `cancelar_nota_fiscal` em vez de `ver_relatorios` — o Caixa
+  tem a primeira, não a segunda (essa é exclusiva de Gestor/Admin Super
+  pra relatórios gerenciais completos); mesmo handler e usecase, zero
+  duplicação de lógica.
+
+  **Bug real encontrado e corrigido ao construir isso**:
+  `FiscalReceiptRepository.Listar` (usado por `GET /notas-fiscais` desde
+  sempre, US-05) nunca selecionava as colunas de cancelamento
+  (`cancelada`, `protocolo_autorizacao`, etc.) — toda nota aparecia como
+  "não cancelada" mesmo quando já tinha sido cancelada de verdade, e o
+  botão "Cancelar nota" apareceria de novo pra algo já cancelado.
+  Corrigido igualando ao SELECT mais completo que `BuscarPorComanda` (da
+  ETAPA 3) já usava.
 - **Gestor** (auditoria, relatórios) — idem, placeholder.
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo
