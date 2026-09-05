@@ -16,6 +16,8 @@ const ABAS = [
   { href: "/gestor/relatorios", label: "Relatórios" },
   { href: "/gestor/notas-fiscais", label: "Notas Fiscais" },
   { href: "/gestor/auditoria", label: "Auditoria" },
+  { href: "/gestor/usuarios", label: "Usuários" },
+  { href: "/gestor/comandas", label: "Comandas" },
 ];
 
 export default function GestorLayout({ children }: { children: React.ReactNode }) {

@@ -492,9 +492,35 @@ raramente olha só uma tela por vez.
   Testado ao vivo trocando entre os 4 períodos e cancelando pelo fluxo
   completo contra dados reais do ambiente de dev.
 
-  **Ainda falta** (próxima etapa, aguardando validação): ETAPA 3 — CRUD
-  de usuários (falta `GET /usuarios`, não existe ainda) e cancelamento
-  total de comanda (US-15).
+  **ETAPA 3 pronta e testada de verdade** (US-01 CRUD de usuários +
+  US-15 cancelamento total de comanda — duas abas novas, "Usuários" e
+  "Comandas", ao final da navegação):
+  - **Usuários** (`app/(gestor)/gestor/usuarios/page.tsx`): lista todos
+    (ativos e inativos, com o nome do perfil resolvido via `GET
+    /api/perfis`), botão "Novo usuário" abre formulário (nome, login,
+    senha, perfil) e cada linha tem "Desativar" com confirmação inline —
+    nunca deleta, só marca inativo (histórico em `audit_log` continua
+    intacto). **Endpoint novo no backend**: não existia `GET /usuarios`
+    — só `POST /usuarios` (criar) e `PATCH /usuarios/:id/desativar`
+    existiam; adicionado `UserRepository.Listar` +
+    `usecase.ListarUsuarios` + rota, reaproveitando o `usuarioResponse`
+    que já existia (nunca serializa o hash de senha).
+  - **Comandas** (`app/(gestor)/gestor/comandas/page.tsx`): busca por
+    código (mesmo padrão de todas as outras telas), mostra o status atual
+    e só libera cancelar se estiver `em_uso` (mensagem clara se não
+    estiver); motivo sempre obrigatório. Usa `POST
+    /comandas/:id/cancelar`, que já existia.
+
+  Testado ao vivo: criei um usuário de verdade (apareceu na lista na
+  hora), e cancelei a comanda C502 de verdade — voltou pro estoque
+  (`status = disponivel`) e confirmei direto no banco.
+
+  **Com isto, as 3 etapas planejadas do painel do Gestor estão
+  completas.** Gaps conhecidos e não resolvidos nesta rodada (fora do
+  escopo pedido): distinção NFC-e vs nota fiscal completa, envio de
+  cupom por e-mail/WhatsApp, cadastro de mesas (ver
+  `merka_crud_mesas_pendente` na memória), e o bug de reuso de comanda em
+  `order_items`/`discounts` já foi corrigido em sessão anterior.
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo
   usuário vê).
