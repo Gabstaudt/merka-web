@@ -469,10 +469,32 @@ raramente olha só uma tela por vez.
   errou. Vale conferir isso sempre que um endpoint novo devolver um
   envelope `{itens, total, ...}` em vez do array/struct de domínio puro.
 
-  **Ainda faltam** (próximas etapas, aguardando validação): ETAPA 2 —
-  relatórios com seletor de período completo + gráfico + notas fiscais;
-  ETAPA 3 — CRUD de usuários (falta `GET /usuarios`, não existe ainda) e
-  cancelamento total de comanda (US-15).
+  **ETAPA 2 pronta e testada de verdade** (US-04/US-05, aba "Relatórios"
+  + aba "Notas Fiscais" — duas abas novas, entre Dashboard e Auditoria):
+  - **Relatórios** (`app/(gestor)/gestor/relatorios/page.tsx`): seletor
+    de período (Dia/Semana/Mês/Ano, botões) + data de referência; total
+    do período + comandas fechadas; duas listas com barra proporcional
+    (mesmo padrão visual do Dashboard, sem lib de gráfico) — por forma de
+    pagamento (`bg-tinta`) e por produto (`bg-ambar`, já ordenado desc
+    pelo backend). Troca de período/data já refaz a consulta sozinha, sem
+    precisar de botão "aplicar". Usa `GET /api/relatorios/vendas` com
+    `periodo`+`data_referencia`.
+  - **Notas Fiscais** (`app/(gestor)/gestor/notas-fiscais/page.tsx`):
+    filtro por status (todas/emitidas/não emitidas) + período, lista
+    paginada com a mesma ação de cancelamento (US-22, motivo 15–255
+    caracteres) já usada no ícone da Caixa — Gestor tem a mesma permissão
+    `cancelar_nota_fiscal` (ver `migrations/0016_seed_permissao_cancelar_nota.sql`:
+    "Caixa/Gestor"), então reaproveita o mesmo proxy
+    `/api/pagamentos/:id/cancelar-nota`. Usa `GET /api/notas-fiscais`
+    (diferente do alias `/api/caixa/notas-fiscais` — este aqui roda sob
+    `ver_relatorios`, exclusiva de Gestor/Admin Super).
+
+  Testado ao vivo trocando entre os 4 períodos e cancelando pelo fluxo
+  completo contra dados reais do ambiente de dev.
+
+  **Ainda falta** (próxima etapa, aguardando validação): ETAPA 3 — CRUD
+  de usuários (falta `GET /usuarios`, não existe ainda) e cancelamento
+  total de comanda (US-15).
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo
   usuário vê).

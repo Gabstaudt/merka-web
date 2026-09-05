@@ -13,6 +13,8 @@ import { MerkaLogo } from "@/components/MerkaLogo";
 // informação do que as telas operacionais.
 const ABAS = [
   { href: "/gestor", label: "Dashboard" },
+  { href: "/gestor/relatorios", label: "Relatórios" },
+  { href: "/gestor/notas-fiscais", label: "Notas Fiscais" },
   { href: "/gestor/auditoria", label: "Auditoria" },
 ];
 
