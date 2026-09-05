@@ -550,10 +550,55 @@ raramente olha só uma tela por vez.
   `lancar_item`/`remover_item`/`transferir_mesa`) não teria nenhuma —
   veria a navegação do Gestor inteiramente vazia, correto.
 
-  **Perfis e Permissões** e **Configurações** são só stubs por enquanto
-  (`app/(gestor)/gestor/perfis/page.tsx`,
-  `app/(gestor)/gestor/configuracoes/page.tsx`) — conteúdo real é
-  ETAPA 2 (US-02) e ETAPA 3, ainda não autorizadas.
+  **ETAPA 2 pronta e testada de verdade** (US-02, aba "Perfis e
+  Permissões" — `app/(gestor)/gestor/perfis/page.tsx`): lista todos os
+  perfis, `Sistema=true` (ex: Admin Super) aparece com "Imutável" em vez
+  de ação de editar (com `title` explicando o porquê); perfis
+  customizados ganham "Editar permissões" abrindo um painel com o
+  catálogo inteiro (~17 chaves) como checkboxes, pré-marcado com o que o
+  perfil já tem. "Novo perfil" abre o mesmo componente de checkboxes
+  (`PermissoesCheckboxList`, compartilhado entre criar e editar) com
+  campo de nome. Usa `GET/POST /api/perfis` e `PUT
+  /api/perfis/:id/permissoes`, todos já existentes.
+
+  **Endpoint novo no backend, essencial pra pré-marcar os checkboxes**:
+  `PUT /perfis/:id/permissoes` sempre **substitui** o conjunto inteiro de
+  permissões (não faz diff) — então editar um perfil sem saber o que ele
+  já tinha marcado significaria ou reconstruir do zero, ou arriscar
+  apagar permissões que o operador não queria tocar. Não existia
+  nenhuma forma de ler o conjunto atual de um perfil. Adicionado `GET
+  /perfis/:id/permissoes` (`internal/handler/role_handler.go`) +
+  `RoleRepository.ListarPermissoesDoRole`
+  (`internal/repository/postgres/role_repo.go`) +
+  `usecase.ListarPermissoesDoPerfil`.
+
+  Testado ao vivo, ponta a ponta: abri "Garcom" (perfil real de dev) e o
+  painel pré-marcou exatamente `lancar_item`/`remover_item`/
+  `transferir_mesa` (conferido antes via `GET /me` desse usuário);
+  marquei `ver_relatorios` a mais, salvei, e confirmei via `GET /me` que
+  o usuário `garcom` passou a ter essa permissão de verdade no banco —
+  revertido depois pra não deixar o ambiente de dev alterado.
+
+  **ETAPA 3 (aba "Configurações") — verificado, e o endpoint NÃO
+  existe.** `pricing_rules` (`migrations/0003_pricing_rules.sql`: chave,
+  configuracao jsonb, ativo) é só uma tabela SQL desde o início do
+  projeto — nenhum domain struct, repository, usecase, handler ou rota
+  foi implementado sobre ela. Por instrução explícita do usuário, **não
+  inventei um endpoint**: `app/(gestor)/gestor/configuracoes/page.tsx`
+  é uma tela real (navegável, dentro do sistema de design, atrás da
+  mesma permissão `criar_perfil`), mas mostra um aviso claro —
+  "Aguardando endpoint no backend" — em vez de simular taxa de
+  serviço/rodízio por pessoa com dado falso. Fica pronta assim que
+  alguém implementar `GET/PUT /configuracoes` (ou rota equivalente)
+  no backend — tarefa separada, de backend.
+
+  **Com isto, a extensão do painel pro Admin Super está completa** (as 3
+  etapas pedidas): acesso condicional por permissão (não por nome de
+  role), CRUD de Perfis e Permissões, e Configurações honestamente
+  bloqueada até existir backend. Isso fecha o conjunto completo de telas
+  planejadas para o frontend do Merka nesta rodada — ver resumo geral no
+  topo desta seção "Estado atual das telas" pra todas as 6 áreas
+  (Porteiro, Balança, Garçom, Caixa, Gestor, Admin Super).
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo
   usuário vê).
