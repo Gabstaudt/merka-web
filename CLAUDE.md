@@ -429,7 +429,50 @@ raramente olha só uma tela por vez.
   botão "Cancelar nota" apareceria de novo pra algo já cancelado.
   Corrigido igualando ao SELECT mais completo que `BuscarPorComanda` (da
   ETAPA 3) já usava.
-- **Gestor** (auditoria, relatórios) — idem, placeholder.
+- **Gestor** (`app/(gestor)/`) — **em implementação por etapas** (painel
+  administrativo, não tela de fluxo operacional — validação a cada
+  etapa). Diferença deliberada de sistema de design: fundo
+  `bg-branco-marca` (não `bg-papel`), estrutura em **abas fixas no topo**
+  (`app/(gestor)/layout.tsx`, client component por causa do destaque da
+  aba ativa via `usePathname`), não mais tela de fluxo único — é acessado
+  de computador/tablet maior, pode ser mais denso em informação.
+
+  **ETAPA 1 pronta e testada de verdade** (US-03/US-04, aba "Dashboard" +
+  aba "Auditoria"):
+  - **Dashboard** (`app/(gestor)/gestor/page.tsx`): total vendido hoje
+    (font-display, âmbar) + comandas fechadas hoje, lado a lado; abaixo,
+    detalhamento por forma de pagamento com barra proporcional simples.
+    Usa `GET /api/relatorios/vendas?periodo=dia&data_referencia=hoje`.
+  - **Auditoria** (`app/(gestor)/gestor/auditoria/page.tsx`): filtros
+    (ação — lista fixa espelhando as chamadas reais de `audit.Executar`
+    no backend, comanda por código, período) + tabela paginada (50 por
+    página), linha expansível mostrando o `dados` (JSON) de cada registro.
+    Usa `GET /api/auditoria`. Testado ao vivo contra 118 registros reais
+    do ambiente de dev.
+
+  **Endpoint novo no backend, adicionado durante esta etapa**:
+  `RelatorioVendas` não tinha "número de comandas fechadas" nenhum campo
+  — só total e detalhamento por forma de pagamento/produto. Adicionado
+  `NumeroComandas` (conta `comanda_id` distinto em `payment_comandas`
+  dentro do período — uma comanda pode ter N payments num pagamento
+  misto, por isso `DISTINCT`, não `COUNT(*)`), via novo método
+  `RelatorioRepository.ContarComandasFechadas`
+  (`internal/repository/postgres/relatorio_repo.go`).
+
+  **Bug real encontrado e corrigido ao testar esta etapa**: o envelope de
+  `GET /auditoria` (`{itens, total, limit, offset}`) usa `json:"itens"`
+  minúsculo — diferente da maioria dos DTOs do backend, que não têm tag
+  nenhuma e por isso serializam em PascalCase. O front inicialmente lia
+  `resposta.Itens` (maiúsculo) e quebrava com "Cannot read properties of
+  undefined" porque o campo real vem como `itens`. Mesmo padrão já existia
+  em `notasFiscaisResponse` (Caixa) e já estava certo lá — só a Auditoria
+  errou. Vale conferir isso sempre que um endpoint novo devolver um
+  envelope `{itens, total, ...}` em vez do array/struct de domínio puro.
+
+  **Ainda faltam** (próximas etapas, aguardando validação): ETAPA 2 —
+  relatórios com seletor de período completo + gráfico + notas fiscais;
+  ETAPA 3 — CRUD de usuários (falta `GET /usuarios`, não existe ainda) e
+  cancelamento total de comanda (US-15).
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo
   usuário vê).
