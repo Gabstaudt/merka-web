@@ -2,26 +2,49 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { LogoutButton } from "@/components/LogoutButton";
 import { MerkaLogo } from "@/components/MerkaLogo";
 
-// Painel do Gestor usa --branco-marca (não --papel) — é a distinção
-// deliberada do sistema de design entre "operação" (Porteiro/Balança/
-// Garçom/Caixa, telas de fluxo único) e "administração" (aqui, estrutura
-// em abas). Acessado de computador/tablet maior, por isso mais denso em
-// informação do que as telas operacionais.
+// Painel administrativo — usa --branco-marca (não --papel) — é a
+// distinção deliberada do sistema de design entre "operação" (Porteiro/
+// Balança/Garçom/Caixa, telas de fluxo único) e "administração" (aqui,
+// estrutura em abas). Acessado de computador/tablet maior, por isso mais
+// denso em informação do que as telas operacionais.
+//
+// Cada aba declara a PERMISSÃO que a libera, nunca o nome de um perfil —
+// perfis são customizáveis (seção 16 do planejamento: Admin Super pode
+// criar perfis novos com qualquer combinação de permissões), então
+// checar "role === Gestor" travaria a navegação assim que alguém criasse
+// um perfil customizado com as mesmas permissões. Gestor e Admin Super
+// veem as mesmas abas operacionais porque têm as mesmas permissões —
+// "Perfis e Permissões" e "Configurações" só aparecem pra quem tem
+// "criar_perfil", hoje exclusiva do Admin Super (ver
+// merka-api/CLAUDE.md).
 const ABAS = [
-  { href: "/gestor", label: "Dashboard" },
-  { href: "/gestor/relatorios", label: "Relatórios" },
-  { href: "/gestor/notas-fiscais", label: "Notas Fiscais" },
-  { href: "/gestor/auditoria", label: "Auditoria" },
-  { href: "/gestor/usuarios", label: "Usuários" },
-  { href: "/gestor/comandas", label: "Comandas" },
+  { href: "/gestor", label: "Dashboard", permissao: "ver_relatorios" },
+  { href: "/gestor/relatorios", label: "Relatórios", permissao: "ver_relatorios" },
+  { href: "/gestor/notas-fiscais", label: "Notas Fiscais", permissao: "ver_relatorios" },
+  { href: "/gestor/auditoria", label: "Auditoria", permissao: "ver_auditoria" },
+  { href: "/gestor/usuarios", label: "Usuários", permissao: "criar_usuario" },
+  { href: "/gestor/comandas", label: "Comandas", permissao: "cancelar_comanda" },
+  { href: "/gestor/perfis", label: "Perfis e Permissões", permissao: "criar_perfil" },
+  { href: "/gestor/configuracoes", label: "Configurações", permissao: "criar_perfil" },
 ];
 
 export default function GestorLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [permissoes, setPermissoes] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((res) => res.json())
+      .then((data) => setPermissoes(Array.isArray(data.permissoes) ? data.permissoes : []))
+      .catch(() => setPermissoes([]));
+  }, []);
+
+  const abasVisiveis = permissoes === null ? [] : ABAS.filter((aba) => permissoes.includes(aba.permissao));
 
   return (
     <div className="min-h-dvh bg-branco-marca">
@@ -35,7 +58,7 @@ export default function GestorLayout({ children }: { children: React.ReactNode }
           <LogoutButton />
         </div>
         <nav className="mx-auto flex max-w-5xl gap-8 px-6">
-          {ABAS.map((aba) => {
+          {abasVisiveis.map((aba) => {
             const ativo = pathname === aba.href;
             return (
               <Link

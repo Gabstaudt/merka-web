@@ -521,6 +521,39 @@ raramente olha só uma tela por vez.
   cupom por e-mail/WhatsApp, cadastro de mesas (ver
   `merka_crud_mesas_pendente` na memória), e o bug de reuso de comanda em
   `order_items`/`discounts` já foi corrigido em sessão anterior.
+
+  **Extensão pro Admin Super, ETAPA 1 pronta e testada de verdade**
+  (acesso condicional por permissão, não por nome de perfil): o painel
+  administrativo (`app/(gestor)/`) passou a ter 8 abas — as 6 de sempre
+  mais **"Perfis e Permissões"** e **"Configurações"**, exclusivas de
+  quem tem a permissão `criar_perfil` (hoje só Admin Super). Cada aba em
+  `ABAS` (`app/(gestor)/layout.tsx`) declara a **permissão** que a libera
+  (`ver_relatorios`, `ver_auditoria`, `criar_usuario`, `cancelar_comanda`,
+  `criar_perfil`), nunca um nome de role — Gestor e Admin Super veem as
+  mesmas abas operacionais porque têm as mesmas permissões, não porque o
+  código checa `role === "Gestor"`. Perfis customizados com essas mesmas
+  permissões veriam exatamente as mesmas abas, de graça.
+
+  **Endpoint novo no backend, essencial pra isso funcionar**: não existia
+  NENHUMA forma do frontend saber as permissões do usuário logado — só
+  o JWT com `role_id` (um UUID opaco, sem significado sem consultar o
+  banco). Adicionado `GET /me` (`internal/handler/me_handler.go`, sem
+  `RequerPermissao` — qualquer usuário autenticado vê as próprias
+  permissões) + `PermissionRepository.ListarChavesDoUsuario`
+  (`internal/repository/postgres/permission_repo.go`). O layout do
+  Gestor busca isso uma vez ao montar e filtra `ABAS` pela lista
+  recebida — abas somem completamente (não aparecem desabilitadas) pra
+  quem não tem a permissão.
+
+  Testado ao vivo: usuário admin (todas as permissões) vê as 8 abas;
+  confirmado via `GET /me` que o usuário `garcom` de dev (só
+  `lancar_item`/`remover_item`/`transferir_mesa`) não teria nenhuma —
+  veria a navegação do Gestor inteiramente vazia, correto.
+
+  **Perfis e Permissões** e **Configurações** são só stubs por enquanto
+  (`app/(gestor)/gestor/perfis/page.tsx`,
+  `app/(gestor)/gestor/configuracoes/page.tsx`) — conteúdo real é
+  ETAPA 2 (US-02) e ETAPA 3, ainda não autorizadas.
 - **Login** — ainda no visual genérico anterior ao sistema de design;
   candidato óbvio pra próxima migração (é a primeira tela que todo
   usuário vê).
