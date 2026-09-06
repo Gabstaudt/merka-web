@@ -18,6 +18,17 @@
   --color-branco-marca: #fafafa;
   --color-linha: #eae8e5;
   --color-texto-secundario: #8a8783;
+
+  /*
+   * Bloqueado/Liberado: par semântico vermelho/verde, EXCLUSIVO da tela
+   * de Porteiro (ver merka-web/CLAUDE.md) — é sinalização de portaria
+   * (pode ou não pode sair), não um acento decorativo genérico. Tons
+   * dessaturados pra continuar convivendo com --ambar sem virar
+   * semáforo: --bloqueado é o mesmo motivo de "atenção" do --ambar, só
+   * que mais fechado pra vermelho; --liberado é seu par frio.
+   */
+  --color-bloqueado: #b34b3c;
+  --color-liberado: #4b7a5b;
 }
 
 @theme inline {
@@ -30,6 +41,8 @@
   --color-branco-marca: var(--color-branco-marca);
   --color-linha: var(--color-linha);
   --color-texto-secundario: var(--color-texto-secundario);
+  --color-bloqueado: var(--color-bloqueado);
+  --color-liberado: var(--color-liberado);
 
   /*
    * font-display (Fraunces): valores monetários e números grandes.

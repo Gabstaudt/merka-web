@@ -171,6 +171,25 @@ raramente olha só uma tela por vez.
   destino único do perfil — sem navegação além de um botão discreto de
   logout (por isso não usa `components/NavShell.tsx`, que tem breadcrumb
   "← Início"; ver `app/(porteiro)/layout.tsx`).
+  **Sinalização vermelho/verde (2026-09-06)**: pedido explícito do
+  usuário pra ficar "mais explícito" — quando a comanda está `em_uso`
+  (cliente não pode sair ainda), o painel de resultado fica vermelho
+  ("Bloqueada — não pode sair"); quando a ação foi `liberar` (cliente
+  pagou, comanda recebida, pode sair), fica verde ("Liberada — pode
+  sair"). É a ÚNICA tela do sistema com essa sinalização — o resto do
+  design system usa só `--ambar` como acento único (nunca semáforo), mas
+  aqui é sinalização de portaria (decisão física de deixar alguém sair ou
+  não), pedido explícito do usuário, então vale a exceção. Novos tokens
+  `--color-bloqueado` (#b34b3c) e `--color-liberado` (#4b7a5b) em
+  `app/globals.css`, dessaturados de propósito pra não brigar com
+  `--ambar` — documentados ali como exclusivos desta tela, não usar em
+  nenhuma outra. Outros erros (comanda não encontrada, falha de rede)
+  continuam neutros/âmbar — só o bloqueio por `em_uso` é vermelho.
+  Correção no mesmo dia (usuário apontou que "Liberada ao cliente" não
+  estava verde): os DOIS estados de sucesso (`liberada` = entrega na
+  entrada, `recebida` = liberação na saída) ficam verdes — qualquer
+  rótulo com "Liberada" na tela usa `--color-liberado`; só o vermelho
+  (`em_uso`) é exclusivo do bloqueio de saída.
 - **Balança** (`app/(balanca)/balanca/page.tsx`) — **implementada de
   verdade**, segunda aplicação do sistema de design. Tela de estação fixa
   (tablet), duas colunas em telas largas: lançamento de peso (US-09) à
@@ -550,6 +569,57 @@ raramente olha só uma tela por vez.
     qualquer texto que o operador digitar, sem geração automática — quem
     decide o valor de `codigo_fisico` ainda é a pessoa cadastrando, igual
     ao padrão usado nas comandas de seed (C001, C777, etc.).
+
+  **Exclusão de comanda (2026-09-05)**: pedido em seguida — Admin
+  Super/Gestor também precisam poder excluir uma comanda, desde que não
+  esteja `em_uso`. Primeira implementação foi soft-delete (coluna
+  `comandas.ativo`), mas o usuário corrigiu: a ideia é excluir uma
+  comanda VAZIA de vez — o número/código deixa de existir e fica livre
+  pra um cartão físico novo, não uma marcação escondida pra sempre.
+  Migration `0028_comandas_exclusao.sql` (a tentativa com `ativo`) foi
+  revertida pela `0029_comandas_exclusao_real.sql` no mesmo dia.
+  - **Backend real (DELETE físico)**: `audit_log.comanda_id` referencia
+    `comandas.id` — um DELETE físico direto quebraria essa FK pra
+    qualquer comanda já auditada (e a auditoria acontece já na criação).
+    Resolvido com `ON DELETE SET NULL` nessa FK específica: a linha de
+    auditoria (e o payload `dados` jsonb, com o id/código preservados)
+    continua pra sempre, só o vínculo direto com a comanda (que deixou de
+    existir) vira `NULL`. As outras FKs que apontam pra `comandas.id`
+    (`order_items`, `discounts`, `payment_comandas`, `sync_alerts`) foram
+    deixadas SEM `ON DELETE` de propósito — são o próprio critério de
+    "vazia": se qualquer uma tiver uma linha (mesmo item removido/
+    estornado, histórico), o `DELETE` falha por violação de FK
+    (`23503`), e o repository traduz isso em `ErrComandaComHistorico`
+    (409, "tem histórico e não pode ser excluída") em vez de apagar
+    itens/pagamentos históricos.
+  - **Gotcha de auditoria descoberto testando**: o decorator
+    `audit.Executar` grava a linha de auditoria DEPOIS de rodar a ação —
+    se a ação em si já apagou a comanda, associar essa linha ao
+    `comanda_id` (a FK, não o jsonb) falharia, porque a comanda referenciada
+    já não existe mais no banco nesse instante. Corrigido no
+    `ComandaHandler.Excluir`: a auditoria de `excluir_comanda` sempre
+    passa `nil` como comanda associada (mesmo em caso de sucesso) — o id
+    fica rastreável no payload `dados`, só não usa a coluna FK.
+  - **Permissão**: `excluir_comanda` (Admin Super/Gestor), endpoint
+    `DELETE /comandas/:id` — `usecase.ExcluirComanda` continua validando
+    `Comanda.PodeSerExcluida()` (recusa com 409 se `status == em_uso`,
+    pedindo pra cancelar o atendimento primeiro via US-15).
+  - **Frontend**: botão "Excluir" por linha em `ComandaRow`
+    (`gestor/comandas/page.tsx`) — só aparece pra quem tem
+    `excluir_comanda` de verdade (`GET /api/me`), desabilitado com
+    tooltip quando `em_uso`. Confirmação inline deixa claro que é
+    irreversível ("o código deixa de existir... essa ação não pode ser
+    desfeita"). Sem o campo `ativo` (removido junto com a migration
+    revertida) — uma comanda excluída simplesmente some da lista, não
+    fica marcada.
+  - **Gotcha de rota Next.js corrigido no caminho**: o Next.js exige que
+    todo segmento dinâmico num mesmo nível de path use o MESMO nome de
+    slug — criar `app/api/comandas/[id]/route.ts` ao lado do já existente
+    `app/api/comandas/[codigo]/route.ts` quebrou o dev server inteiro
+    ("You cannot use different slug names for the same dynamic path").
+    Corrigido juntando o `DELETE` no mesmo arquivo `[codigo]/route.ts`
+    (o nome do parâmetro é só uma variável — ali ele carrega o `id`
+    (uuid) da comanda, não o código físico, apesar do nome do arquivo).
 
   Testado ao vivo: criei um usuário de verdade (apareceu na lista na
   hora), e cancelei a comanda C502 de verdade — voltou pro estoque

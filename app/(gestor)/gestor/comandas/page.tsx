@@ -36,6 +36,7 @@ function TodasComandasSection() {
   const [erro, setErro] = useState<string | null>(null);
   const [comandas, setComandas] = useState<ComandaVisaoGeral[]>([]);
   const [podeCriar, setPodeCriar] = useState(false);
+  const [podeExcluir, setPodeExcluir] = useState(false);
 
   function carregar() {
     setCarregando(true);
@@ -57,8 +58,15 @@ function TodasComandasSection() {
     Promise.resolve().then(() => carregar());
     fetch("/api/me")
       .then((res) => res.json())
-      .then((data) => setPodeCriar(Array.isArray(data.permissoes) && data.permissoes.includes("criar_comanda")))
-      .catch(() => setPodeCriar(false));
+      .then((data) => {
+        const permissoes = Array.isArray(data.permissoes) ? data.permissoes : [];
+        setPodeCriar(permissoes.includes("criar_comanda"));
+        setPodeExcluir(permissoes.includes("excluir_comanda"));
+      })
+      .catch(() => {
+        setPodeCriar(false);
+        setPodeExcluir(false);
+      });
   }, []);
 
   return (
@@ -80,24 +88,105 @@ function TodasComandasSection() {
       {!carregando && !erro && comandas.length > 0 && (
         <ul className="flex flex-col border-y border-linha">
           {comandas.map((c) => (
-            <li key={c.id} className="flex items-center justify-between gap-4 border-t border-linha py-3 first:border-t-0">
-              <div className="flex items-baseline gap-3">
-                <span className="font-mono text-base text-tinta">{c.codigo_fisico}</span>
-                <span className="text-sm text-texto-secundario">
-                  {statusLabel(c.status)}
-                  {c.mesa && ` · ${c.mesa}`}
-                </span>
-              </div>
-              <span className="text-sm text-texto-secundario">
-                {c.quantidade_itens > 0
-                  ? `${c.quantidade_itens} ${c.quantidade_itens > 1 ? "itens" : "item"} · ${formatarMoeda(c.valor_total)}`
-                  : "sem itens lançados"}
-              </span>
-            </li>
+            <ComandaRow key={c.id} comanda={c} podeExcluir={podeExcluir} onExcluida={carregar} />
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+// ComandaRow: uma linha da visão geral, com a ação de excluir (permissão
+// excluir_comanda, Admin Super/Gestor) — exclusão DE VERDADE (o código
+// físico deixa de existir e pode ser reaproveitado depois), não um soft-
+// delete. Só funciona se a comanda NÃO estiver em uso e nunca tiver tido
+// item/pagamento/desconto/alerta (backend recusa com 409 em ambos os
+// casos — aqui só evita o clique inútil no primeiro). Confirmação
+// inline, sem motivo — a exclusão em si continua auditada.
+function ComandaRow({
+  comanda,
+  podeExcluir,
+  onExcluida,
+}: {
+  comanda: ComandaVisaoGeral;
+  podeExcluir: boolean;
+  onExcluida: () => void;
+}) {
+  const [confirmando, setConfirmando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function excluir() {
+    if (excluindo) return;
+    setExcluindo(true);
+    setErro(null);
+
+    try {
+      const res = await fetch(`/api/comandas/${encodeURIComponent(comanda.id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setErro(data.erro ?? "não foi possível excluir a comanda");
+        return;
+      }
+      onExcluida();
+    } catch {
+      setErro("Sem conexão com o servidor. Confira a rede e tente de novo.");
+    } finally {
+      setExcluindo(false);
+    }
+  }
+
+  return (
+    <li className="border-t border-linha py-3 first:border-t-0">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-baseline gap-3">
+          <span className="font-mono text-base text-tinta">{comanda.codigo_fisico}</span>
+          <span className="text-sm text-texto-secundario">
+            {statusLabel(comanda.status)}
+            {comanda.mesa && ` · ${comanda.mesa}`}
+          </span>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-texto-secundario">
+            {comanda.quantidade_itens > 0
+              ? `${comanda.quantidade_itens} ${comanda.quantidade_itens > 1 ? "itens" : "item"} · ${formatarMoeda(comanda.valor_total)}`
+              : "sem itens lançados"}
+          </span>
+          {podeExcluir && !confirmando && (
+            <button
+              type="button"
+              onClick={() => setConfirmando(true)}
+              disabled={comanda.status === "em_uso"}
+              title={comanda.status === "em_uso" ? "Não é possível excluir uma comanda em uso" : undefined}
+              className="text-sm text-texto-secundario underline underline-offset-2 hover:text-tinta disabled:opacity-40 disabled:no-underline"
+            >
+              Excluir
+            </button>
+          )}
+        </div>
+      </div>
+
+      {confirmando && (
+        <div className="mt-2 flex items-center gap-4 border-l-2 border-ambar pl-4">
+          <span className="text-sm text-texto-secundario">
+            Excluir a comanda {comanda.codigo_fisico} de vez? O código deixa de existir no sistema — essa ação não
+            pode ser desfeita, mas o código fica livre pra um cartão físico novo.
+          </span>
+          <button
+            type="button"
+            onClick={excluir}
+            disabled={excluindo}
+            className="bg-tinta px-4 py-1.5 text-sm font-medium text-papel transition-opacity disabled:opacity-40"
+          >
+            {excluindo ? "Excluindo…" : "Confirmar"}
+          </button>
+          <button type="button" onClick={() => setConfirmando(false)} className="text-sm text-texto-secundario hover:text-tinta">
+            Cancelar
+          </button>
+        </div>
+      )}
+      {erro && <p className="mt-2 text-sm text-ambar">{erro}</p>}
+    </li>
   );
 }
 

@@ -17,7 +17,7 @@ type Comanda = {
 type Resultado =
   | { tipo: "liberada"; comanda: Comanda; horario: string; chave: number }
   | { tipo: "recebida"; comanda: Comanda; horario: string; chave: number }
-  | { tipo: "erro"; codigo: string; mensagem: string; chave: number };
+  | { tipo: "erro"; codigo: string; mensagem: string; bloqueada: boolean; chave: number };
 
 // O porteiro só escaneia — não escolhe "entregar" ou "receber" na tela.
 // O sistema consulta o status atual da comanda e decide sozinho a
@@ -74,6 +74,7 @@ export default function PorteiroPage() {
           tipo: "erro",
           codigo: codigoAtual,
           mensagem: mensagemDeErro(codigoAtual, null, dadosConsulta.erro),
+          bloqueada: false,
           chave: Date.now(),
         });
         return;
@@ -85,6 +86,7 @@ export default function PorteiroPage() {
           tipo: "erro",
           codigo: codigoAtual,
           mensagem: mensagemDeErro(codigoAtual, dadosConsulta.Status),
+          bloqueada: dadosConsulta.Status === "em_uso",
           chave: Date.now(),
         });
         return;
@@ -102,6 +104,7 @@ export default function PorteiroPage() {
           tipo: "erro",
           codigo: codigoAtual,
           mensagem: mensagemDeErro(codigoAtual, null, data.erro),
+          bloqueada: false,
           chave: Date.now(),
         });
       } else {
@@ -117,6 +120,7 @@ export default function PorteiroPage() {
         tipo: "erro",
         codigo: codigoAtual,
         mensagem: "Sem conexão com o servidor. Confira a rede e tente de novo.",
+        bloqueada: false,
         chave: Date.now(),
       });
     } finally {
@@ -141,22 +145,42 @@ export default function PorteiroPage() {
         {resultado && (
           <section
             key={resultado.chave}
-            className="animate-feedback-in border-b border-linha px-6 py-10 sm:px-10 sm:py-14"
+            className={`animate-feedback-in border-b border-linha px-6 py-10 sm:px-10 sm:py-14 ${
+              resultado.tipo === "erro" && resultado.bloqueada
+                ? "bg-bloqueado/10"
+                : resultado.tipo === "liberada" || resultado.tipo === "recebida"
+                  ? "bg-liberado/10"
+                  : ""
+            }`}
           >
-            <div className="border-l-2 border-ambar pl-6">
+            <div
+              className={`border-l-2 pl-6 ${
+                resultado.tipo === "erro" && resultado.bloqueada
+                  ? "border-bloqueado"
+                  : resultado.tipo === "liberada" || resultado.tipo === "recebida"
+                    ? "border-liberado"
+                    : "border-ambar"
+              }`}
+            >
               {resultado.tipo === "erro" ? (
                 <>
-                  <p className="text-sm font-medium text-ambar">Não foi possível concluir</p>
-                  <p className="mt-2 max-w-xl text-2xl leading-snug text-tinta sm:text-3xl">
+                  <p className={`text-sm font-medium ${resultado.bloqueada ? "text-bloqueado" : "text-ambar"}`}>
+                    {resultado.bloqueada ? "Bloqueada — não pode sair" : "Não foi possível concluir"}
+                  </p>
+                  <p
+                    className={`mt-2 max-w-xl text-2xl leading-snug sm:text-3xl ${
+                      resultado.bloqueada ? "text-bloqueado" : "text-tinta"
+                    }`}
+                  >
                     {resultado.mensagem}
                   </p>
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-medium text-ambar">
-                    {resultado.tipo === "liberada" ? "Liberada ao cliente" : "Recebida, pronta pro próximo cliente"}
+                  <p className="text-sm font-medium text-liberado">
+                    {resultado.tipo === "liberada" ? "Liberada ao cliente" : "Liberada — pode sair"}
                   </p>
-                  <p className="mt-2 font-display text-6xl text-tinta sm:text-7xl">
+                  <p className="mt-2 font-display text-6xl text-liberado sm:text-7xl">
                     {resultado.comanda.CodigoFisico}
                   </p>
                   <p className="mt-3 font-mono text-sm text-texto-secundario">{resultado.horario}</p>
